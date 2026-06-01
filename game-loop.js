@@ -1243,13 +1243,13 @@ class GameLoop {
     const lv = this.progression.level;
 
     if (this._runState === 'playing' && lv >= 4) {
-      timerEl.style.display = '';
+      timerEl.style.display = 'block';
       if (lblEl) lblEl.textContent = 'SETUP';
       valEl.textContent = this._setupTimer.toFixed(1);
       const pct = this._setupTimeTotal > 0 ? this._setupTimer / this._setupTimeTotal : 1;
       timerEl.classList.toggle('timer-warning', pct <= 0.10);
     } else if (this._runState === 'nemesis') {
-      timerEl.style.display = '';
+      timerEl.style.display = 'block';
       if (lblEl) lblEl.textContent = 'ATTACK';
       valEl.textContent = this._attackTimer.toFixed(1);
       const pct = this._attackTimeTotal > 0 ? this._attackTimer / this._attackTimeTotal : 1;

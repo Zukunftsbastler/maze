@@ -34,8 +34,11 @@ class HexRenderer {
       floorRevealed:    '#0b0f17',
       bridgeRevealed:   '#0b0f17',
       wallRevealed:     '#1e3a4a',
-      // Defence
-      floorBuildable:   'rgba(110,55,210,0.22)',
+      // Defence / build-spot hologram
+      buildSpotHolo:     'rgba(255,158,0,0.85)',   // bright amber (in-sight)
+      buildSpotGlow:     'rgba(255,158,0,0.45)',   // amber glow shadow
+      buildSpotTint:     'rgba(255,158,0,0.12)',   // faint floor tint (in-sight)
+      buildSpotRevealed: '#cc7a00',                // flat ochre (fog memory)
       floorBlockade:    '#1a080e',
     };
 
@@ -138,23 +141,76 @@ class HexRenderer {
       for (let i = 1; i < 6; i++) ctx.lineTo(sc[i].x, sc[i].y);
       ctx.closePath();
 
-      if (v === 1) {
-        ctx.fillStyle = this.colors.floorRevealed;
-      } else if (cell.blockadeLevel > 0) {
+      if (cell.blockadeLevel > 0) {
         ctx.fillStyle = this.colors.floorBlockade;
+      } else if (v === 1) {
+        ctx.fillStyle = this.colors.floorRevealed;
       } else if (cell.isGoal) {
         ctx.fillStyle = 'rgba(255,68,102,0.30)';
       } else if (cell.isStart) {
         ctx.fillStyle = 'rgba(0,255,136,0.30)';
       } else if (this.showPath && pathSet.has(cell.key)) {
         ctx.fillStyle = this.colors.pathFloor;
-      } else if (cell.isBuildable) {
-        ctx.fillStyle = this.colors.floorBuildable;
       } else {
         ctx.fillStyle = this.colors.floor;
       }
       ctx.fill();
     }
+
+    // ── Pass 2.5: build-spot holographic blueprints ───────────────────────────
+    // Rendered for v > 0 (both in-sight and revealed-in-fog).
+    // Deliberately runs while lineDash and shadowBlur are still at canvas defaults.
+    ctx.lineCap  = 'round';
+    ctx.lineJoin = 'round';
+    for (const cell of grid.cells.values()) {
+      if (!cell.isBuildable || cell.blockadeLevel > 0) continue;
+      const v = vis(cell);
+      if (v === 0) continue;
+
+      const { x, y } = HexMath.toPixel(cell.q, cell.r, size);
+      const cx = x + offX, cy = y + offY;
+
+      // In-sight: lay a faint amber tint over the full floor hex first
+      if (v === 2) {
+        const sc = shrunk(cell, f);
+        ctx.beginPath();
+        ctx.moveTo(sc[0].x, sc[0].y);
+        for (let i = 1; i < 6; i++) ctx.lineTo(sc[i].x, sc[i].y);
+        ctx.closePath();
+        ctx.fillStyle = this.colors.buildSpotTint;
+        ctx.fill();
+      }
+
+      // Blueprint hexagon at 60 % floor scale
+      const bsc = shrunk(cell, f * 0.60);
+      ctx.beginPath();
+      ctx.moveTo(bsc[0].x, bsc[0].y);
+      for (let i = 1; i < 6; i++) ctx.lineTo(bsc[i].x, bsc[i].y);
+      ctx.closePath();
+      ctx.lineWidth = 2;
+      ctx.setLineDash([4, 4]);
+      if (v === 2) {
+        ctx.shadowColor = this.colors.buildSpotGlow;
+        ctx.shadowBlur  = 12;
+        ctx.strokeStyle = this.colors.buildSpotHolo;
+      } else {
+        ctx.shadowBlur  = 0;
+        ctx.strokeStyle = this.colors.buildSpotRevealed;
+      }
+      ctx.stroke();
+
+      // Anchor cross (+) — solid lines, same colour/glow
+      const arm = size * 0.10;
+      ctx.setLineDash([]);
+      ctx.beginPath();
+      ctx.moveTo(cx - arm, cy); ctx.lineTo(cx + arm, cy);
+      ctx.moveTo(cx, cy - arm); ctx.lineTo(cx, cy + arm);
+      ctx.stroke();
+
+      ctx.shadowBlur = 0;
+    }
+    ctx.setLineDash([]);
+    ctx.shadowBlur = 0;
 
     // ── Pass 3: wall lines ────────────────────────────────────────────────────
     ctx.lineCap  = 'round';
@@ -208,20 +264,29 @@ class HexRenderer {
       }
     }
 
-    // ── Pass 3.5: in-world icons (currency, upgrade, blockade X, build dot) ─────
+    // ── Pass 3.5: in-world icons (blockade X visible in fog; loot only in sight) ─
     for (const cell of grid.cells.values()) {
-      if (vis(cell) !== 2) continue; // icons only when fully visible
+      const v = vis(cell);
+      if (v === 0) continue; // completely hidden
 
       const { x, y } = HexMath.toPixel(cell.q, cell.r, size);
       const cx = x + offX, cy = y + offY;
       const ir = size * 0.20;
 
+      // Blockade X: visible in both direct sight and fog memory
       if (cell.blockadeLevel > 0) {
         const w = ir * 0.75;
-        ctx.strokeStyle = '#ff4466'; ctx.lineWidth = 2.5; ctx.lineCap = 'round';
+        ctx.strokeStyle = v === 2 ? '#ff4466' : '#cc2b4d';
+        ctx.lineWidth = 2.5; ctx.lineCap = 'round';
         ctx.beginPath(); ctx.moveTo(cx - w, cy - w); ctx.lineTo(cx + w, cy + w); ctx.stroke();
         ctx.beginPath(); ctx.moveTo(cx + w, cy - w); ctx.lineTo(cx - w, cy + w); ctx.stroke();
-      } else if (cell.hasCurrency) {
+        continue; // skip loot check for this cell
+      }
+
+      // Loot icons: only in direct sight
+      if (v !== 2) continue;
+
+      if (cell.hasCurrency) {
         ctx.beginPath(); ctx.arc(cx, cy, ir, 0, Math.PI * 2);
         ctx.fillStyle   = '#ffd23f';
         ctx.shadowColor = '#ffd23f'; ctx.shadowBlur = 10;
@@ -235,11 +300,6 @@ class HexRenderer {
         ctx.closePath();
         ctx.fillStyle   = '#4a9eff';
         ctx.shadowColor = '#4a9eff'; ctx.shadowBlur = 10;
-        ctx.fill(); ctx.shadowBlur = 0;
-      } else if (cell.isBuildable) {
-        ctx.beginPath(); ctx.arc(cx, cy, ir * 0.42, 0, Math.PI * 2);
-        ctx.fillStyle   = 'rgba(150,90,255,0.85)';
-        ctx.shadowColor = '#8844ff'; ctx.shadowBlur = 7;
         ctx.fill(); ctx.shadowBlur = 0;
       }
     }

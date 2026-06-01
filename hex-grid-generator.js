@@ -480,23 +480,37 @@ class HexGridGenerator {
 
   // ── Tagging ───────────────────────────────────────────────────────────────
 
-  // Select at most `radius` cells as buildable: ~65% from the A* path interior,
-  // ~35% from off-path cells. Buildable cells are where blockades can be placed.
+  // Select at most `radius` cells as buildable: ~65% from the A* path interior
+  // (only spots with a bypass — pre-validated so no choke points), ~35% off-path.
+  // If fewer valid path spots exist than the quota, the deficit is filled by offCands.
   _tagBuildableCells() {
     for (const cell of this.cells.values()) cell.isBuildable = false;
 
     const path    = this.findPath(this.startCell.key, this.goalCell.key);
     const pathSet = new Set(path);
     const maxBuildable = this.radius;
+    const pathQuota    = Math.ceil(maxBuildable * 0.65);
 
-    // Path interior: skip first 2 and last 2 cells (near start/goal tunnels)
+    // Path interior candidates: skip first 2 and last 2 (near tunnels)
     const pathCands = path.slice(2, -2).filter(k => {
       const c = this.cells.get(k);
       return c && !c.isTunnel && !c.isStart && !c.isGoal;
     });
     this.rng.shuffle(pathCands);
 
-    // Off-path cells
+    // Pre-validate: keep only cells that have a bypass when blocked.
+    // Stop as soon as we reach pathQuota valid spots to minimise A* calls.
+    const validPathCands = [];
+    for (const key of pathCands) {
+      if (validPathCands.length >= pathQuota) break;
+      const cell = this.cells.get(key);
+      cell.isWalkable = false;
+      const bypass = this.findPath(this.startCell.key, this.goalCell.key);
+      cell.isWalkable = true;
+      if (bypass.length > 0) validPathCands.push(key);
+    }
+
+    // Off-path candidates — absorb any deficit from choke-point filtering
     const offCands = [];
     for (const [key, cell] of this.cells) {
       if (!pathSet.has(key) && !cell.isTunnel && !cell.isStart && !cell.isGoal) {
@@ -505,11 +519,13 @@ class HexGridGenerator {
     }
     this.rng.shuffle(offCands);
 
-    const pathCount = Math.min(Math.ceil(maxBuildable * 0.65), pathCands.length);
-    const offCount  = Math.min(maxBuildable - pathCount, offCands.length);
+    const actualPathCount = validPathCands.length;
+    const deficit  = pathQuota - actualPathCount;          // shortfall from choke filtering
+    const offCount = Math.min(maxBuildable - actualPathCount, offCands.length,
+                              Math.ceil(maxBuildable * 0.35) + deficit);
 
-    for (let i = 0; i < pathCount; i++) this.cells.get(pathCands[i]).isBuildable = true;
-    for (let i = 0; i < offCount;  i++) this.cells.get(offCands[i]).isBuildable  = true;
+    for (const key of validPathCands)       this.cells.get(key).isBuildable = true;
+    for (let i = 0; i < offCount; i++) this.cells.get(offCands[i]).isBuildable = true;
   }
 
   // Populate dead-end cells (exactly 1 open passage) with currency and upgrades.
