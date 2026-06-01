@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node --input-type=module)",
+      "Bash(node -e ' *)",
+      "Bash(node -e \"new Function\\(require\\('fs'\\).readFileSync\\('/Users/macadmin/Games/Maze/hex-renderer.js','utf8'\\)\\); console.log\\('syntax OK'\\)\")",
+      "Bash(node /tmp/maze-p03.js)",
+      "Bash(echo \"exit:$?\")",
+      "Bash(node /tmp/p03b.js)",
+      "Bash(echo \"--- exit $?\")",
+      "Bash(node -e 'new Function\\(require\\('\\\\''fs'\\\\''\\).readFileSync\\('\\\\''/Users/macadmin/Games/Maze/__TRACKED_VAR__'\\\\'','\\\\''utf8'\\\\''\\)\\)')",
+      "Bash(git -C /Users/macadmin/Games/Maze status)",
+      "Bash(git -C /Users/macadmin/Games/Maze init)",
+      "Bash(git -C /Users/macadmin/Games/Maze add -A)",
+      "Bash(git -C /Users/macadmin/Games/Maze log --oneline)"
+    ]
+  }
+}

@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Hex Maze</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: #0d0d1a;
+      color: #c8d6e5;
+      font-family: 'Courier New', monospace;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-height: 100vh;
+      padding: 20px;
+      overflow-x: hidden;
+    }
+
+    body.play-mode {
+      padding: 10px;
+      overflow: hidden;
+    }
+
+    /* ── Header ── */
+    #header {
+      display: flex;
+      align-items: center;
+      gap: 20px;
+      margin-bottom: 18px;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+
+    h1 {
+      font-size: 1.4rem;
+      letter-spacing: 0.15em;
+      color: #4a9eff;
+      text-shadow: 0 0 12px rgba(74,158,255,0.6);
+    }
+
+    /* ── Mode toggle button ── */
+    #btn-mode {
+      background: transparent;
+      border: 2px solid #00ff88;
+      color: #00ff88;
+      border-radius: 6px;
+      padding: 8px 20px;
+      font-family: inherit;
+      font-size: 0.85rem;
+      letter-spacing: 0.1em;
+      cursor: pointer;
+      text-transform: uppercase;
+      transition: background 0.15s, box-shadow 0.15s;
+    }
+    #btn-mode:hover {
+      background: rgba(0,255,136,0.12);
+      box-shadow: 0 0 14px rgba(0,255,136,0.4);
+    }
+    #btn-mode.active {
+      background: rgba(0,255,136,0.18);
+      box-shadow: 0 0 16px rgba(0,255,136,0.5);
+    }
+
+    /* ── Analysis controls ── */
+    #controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 14px 22px;
+      align-items: flex-end;
+      justify-content: center;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(74,158,255,0.2);
+      border-radius: 10px;
+      padding: 16px 22px;
+      margin-bottom: 14px;
+      max-width: 880px;
+      width: 100%;
+    }
+
+    .control-group {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      min-width: 130px;
+    }
+
+    label {
+      font-size: 0.72rem;
+      letter-spacing: 0.08em;
+      color: #4a9eff;
+      text-transform: uppercase;
+    }
+
+    input[type="range"] { accent-color: #4a9eff; width: 100%; cursor: pointer; }
+
+    input[type="text"] {
+      background: #0d0d1a;
+      border: 1px solid rgba(74,158,255,0.35);
+      color: #c8d6e5;
+      border-radius: 5px;
+      padding: 5px 8px;
+      font-family: inherit;
+      font-size: 0.85rem;
+      width: 100%;
+    }
+
+    .val-label { font-size: 0.78rem; color: #8899aa; text-align: right; }
+
+    .btn-row { display: flex; gap: 10px; align-items: flex-end; }
+
+    button {
+      background: transparent;
+      border: 1.5px solid #4a9eff;
+      color: #4a9eff;
+      border-radius: 6px;
+      padding: 8px 18px;
+      font-family: inherit;
+      font-size: 0.82rem;
+      letter-spacing: 0.08em;
+      cursor: pointer;
+      text-transform: uppercase;
+      transition: background 0.15s, box-shadow 0.15s;
+      white-space: nowrap;
+    }
+    button:hover {
+      background: rgba(74,158,255,0.15);
+      box-shadow: 0 0 12px rgba(74,158,255,0.35);
+    }
+    button.accent { border-color: #00ff88; color: #00ff88; }
+    button.accent:hover {
+      background: rgba(0,255,136,0.12);
+      box-shadow: 0 0 12px rgba(0,255,136,0.35);
+    }
+
+    #show-path-label, #assist-label {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.78rem;
+      color: #8899aa;
+      cursor: pointer;
+      padding-bottom: 2px;
+    }
+
+    #stats {
+      font-size: 0.75rem;
+      color: #556677;
+      margin-bottom: 10px;
+      letter-spacing: 0.06em;
+    }
+
+    /* ── Play mode bar (below header, above canvas) ── */
+    #play-bar {
+      display: none;
+      align-items: center;
+      gap: 18px;
+      margin-bottom: 12px;
+      font-size: 0.78rem;
+      color: #556677;
+      letter-spacing: 0.06em;
+    }
+    #play-bar.visible { display: flex; flex-wrap: wrap; justify-content: center; }
+
+    /* ── Canvas wrapper ── */
+    #canvas-wrap {
+      position: relative;
+      display: inline-block;
+      overflow: auto;
+      max-width: 100%;
+    }
+
+    body.play-mode #canvas-wrap {
+      overflow: hidden;
+      width: 100%;
+    }
+
+    canvas { display: block; }
+
+    /* ── In-canvas HUD (absolute over canvas) ── */
+    #hud {
+      display: none;
+      position: absolute;
+      top: 12px;
+      left: 12px;
+      background: rgba(6,6,15,0.82);
+      border: 1px solid rgba(0,212,255,0.25);
+      border-radius: 8px;
+      padding: 10px 16px;
+      pointer-events: none;
+      font-size: 0.78rem;
+      line-height: 1.85;
+      letter-spacing: 0.06em;
+    }
+    #hud.visible { display: block; }
+
+    .hud-row { display: flex; justify-content: space-between; gap: 18px; }
+    .hud-label { color: #4a9eff; }
+    .hud-value { color: #c8d6e5; font-weight: bold; }
+
+    /* ── Controls hint (play mode) ── */
+    #controls-hint {
+      display: none;
+      position: absolute;
+      bottom: 12px;
+      right: 12px;
+      background: rgba(6,6,15,0.72);
+      border: 1px solid rgba(74,158,255,0.15);
+      border-radius: 6px;
+      padding: 8px 12px;
+      font-size: 0.66rem;
+      color: #445566;
+      line-height: 1.6;
+      pointer-events: none;
+    }
+    #controls-hint.visible { display: block; }
+  </style>
+</head>
+<body>
+  <div id="header">
+    <h1>⬡ HEX MAZE</h1>
+    <button id="btn-mode">Play Mode</button>
+  </div>
+
+  <!-- Analysis Mode controls -->
+  <div id="controls">
+    <div class="control-group">
+      <label>Size (radius)</label>
+      <input type="range" id="radius" min="3" max="14" value="7" step="1">
+      <span class="val-label" id="radius-val">7</span>
+    </div>
+
+    <div class="control-group">
+      <label>Winding Factor</label>
+      <input type="range" id="winding" min="0" max="1" value="0.7" step="0.05">
+      <span class="val-label" id="winding-val">0.70</span>
+    </div>
+
+    <div class="control-group">
+      <label>Cell Size (px)</label>
+      <input type="range" id="cellsize" min="16" max="56" value="30" step="2">
+      <span class="val-label" id="cellsize-val">30</span>
+    </div>
+
+    <div class="control-group" style="min-width:160px">
+      <label>Seed</label>
+      <input type="text" id="seed" value="maze-seed-1" placeholder="any string">
+    </div>
+
+    <div class="btn-row">
+      <button id="btn-generate">Generate</button>
+      <button id="btn-random" class="accent">Random Seed</button>
+      <button id="btn-export">Export JSON</button>
+    </div>
+
+    <label id="show-path-label">
+      <input type="checkbox" id="show-path"> Show Solution Path
+    </label>
+  </div>
+
+  <!-- Play Mode bar (above canvas) -->
+  <div id="play-bar">
+    <label id="assist-label">
+      <input type="checkbox" id="show-assist" checked> Movement Assist
+    </label>
+    <span style="color:#334455">Use Q W E / A S D or Arrow Keys to move · Click / tap to drag</span>
+  </div>
+
+  <div id="stats"></div>
+
+  <div id="canvas-wrap">
+    <canvas id="maze-canvas"></canvas>
+
+    <!-- HUD overlay (play mode) -->
+    <div id="hud">
+      <div class="hud-row">
+        <span class="hud-label">LEVEL</span>
+        <span class="hud-value" id="hud-level">1</span>
+      </div>
+      <div class="hud-row" id="hud-island-row" style="display:none">
+        <span class="hud-label">ISLAND</span>
+        <span class="hud-value" id="hud-island">1 / 1</span>
+      </div>
+      <div class="hud-row">
+        <span class="hud-label">TIME</span>
+        <span class="hud-value" id="hud-timer">0:00.0</span>
+      </div>
+      <div class="hud-row">
+        <span class="hud-label">EFFICIENCY</span>
+        <span class="hud-value" id="hud-efficiency">100%</span>
+      </div>
+    </div>
+
+    <!-- Controls hint overlay (play mode) -->
+    <div id="controls-hint">
+      Q&nbsp;W&nbsp;E<br>
+      A&nbsp;S&nbsp;D<br>
+      or Arrows
+    </div>
+  </div>
+
+  <script src="hex-math.js"></script>
+  <script src="random.js"></script>
+  <script src="hex-cell.js"></script>
+  <script src="hex-grid-generator.js"></script>
+  <script src="hex-renderer.js"></script>
+  <script src="player.js"></script>
+  <script src="game-loop.js"></script>
+  <script>
+    // ── State ────────────────────────────────────────────────────────────────
+    const canvas = document.getElementById('maze-canvas');
+    let analysisGrid     = null;
+    let analysisRenderer = null;
+    let gameLoop         = null;
+    let currentMode      = 'analysis'; // 'analysis' | 'play'
+
+    // ── Analysis Mode helpers ─────────────────────────────────────────────────
+    function getAnalysisParams() {
+      return {
+        radius:        parseInt(document.getElementById('radius').value, 10),
+        windingFactor: parseFloat(document.getElementById('winding').value),
+        seed:          document.getElementById('seed').value || 'maze',
+        cellSize:      parseInt(document.getElementById('cellsize').value, 10),
+        showPath:      document.getElementById('show-path').checked,
+      };
+    }
+
+    function generateAnalysis() {
+      const p = getAnalysisParams();
+      const gen = new HexGridGenerator({
+        radius: p.radius, windingFactor: p.windingFactor, seed: p.seed,
+        offsetQ: 0, topologyMode: 'SINGLE_BLOB',
+      });
+      analysisGrid = gen.generate();
+
+      analysisRenderer = new HexRenderer(canvas, { cellSize: p.cellSize, showPath: p.showPath });
+      const path = analysisGrid.findPath(analysisGrid.startCell.key, analysisGrid.goalCell.key);
+      analysisRenderer.setPath(path);
+      analysisRenderer.render(analysisGrid);
+
+      const s = analysisGrid.startCell, g = analysisGrid.goalCell;
+      document.getElementById('stats').textContent =
+        `Cells: ${analysisGrid.cells.size}  |  Path: ${path.length}  |  ` +
+        `Start: (${s.q},${s.r})  →  Goal: (${g.q},${g.r})  |  ` +
+        `Mode: ${analysisGrid.topologyMode}`;
+    }
+
+    // ── Mode switching ────────────────────────────────────────────────────────
+    function enterPlayMode() {
+      currentMode = 'play';
+      document.body.classList.add('play-mode');
+      document.getElementById('btn-mode').textContent = 'Analysis Mode';
+      document.getElementById('btn-mode').classList.add('active');
+      document.getElementById('controls').style.display = 'none';
+      document.getElementById('stats').style.display    = 'none';
+      document.getElementById('play-bar').classList.add('visible');
+      document.getElementById('hud').classList.add('visible');
+      document.getElementById('controls-hint').classList.add('visible');
+
+      gameLoop = new GameLoop(canvas);
+      gameLoop.setShowMovementAssist(document.getElementById('show-assist').checked);
+      gameLoop.start();
+    }
+
+    function enterAnalysisMode() {
+      currentMode = 'analysis';
+      document.body.classList.remove('play-mode');
+      document.getElementById('btn-mode').textContent = 'Play Mode';
+      document.getElementById('btn-mode').classList.remove('active');
+      document.getElementById('controls').style.display = '';
+      document.getElementById('stats').style.display    = '';
+      document.getElementById('play-bar').classList.remove('visible');
+      document.getElementById('hud').classList.remove('visible');
+      document.getElementById('controls-hint').classList.remove('visible');
+
+      if (gameLoop) { gameLoop.stop(); gameLoop = null; }
+      generateAnalysis(); // restore analysis render
+    }
+
+    // ── Event wiring ──────────────────────────────────────────────────────────
+    document.getElementById('btn-mode').addEventListener('click', () => {
+      if (currentMode === 'analysis') enterPlayMode();
+      else enterAnalysisMode();
+    });
+
+    // Analysis controls
+    ['radius','winding','cellsize'].forEach(id => {
+      const el  = document.getElementById(id);
+      const lbl = document.getElementById(id + '-val');
+      el.addEventListener('input', () => {
+        lbl.textContent = id === 'winding' ? parseFloat(el.value).toFixed(2) : el.value;
+      });
+    });
+
+    document.getElementById('btn-generate').addEventListener('click', generateAnalysis);
+
+    document.getElementById('btn-random').addEventListener('click', () => {
+      document.getElementById('seed').value = Math.random().toString(36).slice(2, 10);
+      generateAnalysis();
+    });
+
+    document.getElementById('show-path').addEventListener('change', () => {
+      if (!analysisGrid || !analysisRenderer) return;
+      analysisRenderer.showPath = document.getElementById('show-path').checked;
+      analysisRenderer.render(analysisGrid);
+    });
+
+    document.getElementById('btn-export').addEventListener('click', () => {
+      if (!analysisGrid) return;
+      const data = JSON.stringify(analysisGrid.toJSON(), null, 2);
+      const blob = new Blob([data], { type: 'application/json' });
+      const a    = Object.assign(document.createElement('a'), {
+        href: URL.createObjectURL(blob),
+        download: `maze-${analysisGrid.seed}-r${analysisGrid.radius}.json`,
+      });
+      a.click();
+      URL.revokeObjectURL(a.href);
+    });
+
+    document.getElementById('show-assist').addEventListener('change', e => {
+      if (gameLoop) gameLoop.setShowMovementAssist(e.target.checked);
+    });
+
+    // ── Boot ──────────────────────────────────────────────────────────────────
+    generateAnalysis();
+  </script>
+</body>
+</html>
