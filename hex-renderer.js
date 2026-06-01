@@ -34,6 +34,9 @@ class HexRenderer {
       floorRevealed:    '#0b0f17',
       bridgeRevealed:   '#0b0f17',
       wallRevealed:     '#1e3a4a',
+      // Defence
+      floorBuildable:   'rgba(110,55,210,0.22)',
+      floorBlockade:    '#1a080e',
     };
 
     this.showPath = options.showPath ?? false;
@@ -136,14 +139,17 @@ class HexRenderer {
       ctx.closePath();
 
       if (v === 1) {
-        // Revealed (memory): always dimmed, no special colours
         ctx.fillStyle = this.colors.floorRevealed;
+      } else if (cell.blockadeLevel > 0) {
+        ctx.fillStyle = this.colors.floorBlockade;
       } else if (cell.isGoal) {
         ctx.fillStyle = 'rgba(255,68,102,0.30)';
       } else if (cell.isStart) {
         ctx.fillStyle = 'rgba(0,255,136,0.30)';
       } else if (this.showPath && pathSet.has(cell.key)) {
         ctx.fillStyle = this.colors.pathFloor;
+      } else if (cell.isBuildable) {
+        ctx.fillStyle = this.colors.floorBuildable;
       } else {
         ctx.fillStyle = this.colors.floor;
       }
@@ -199,6 +205,42 @@ class HexRenderer {
           ctx.strokeStyle = this.colors.wall;
           ctx.lineWidth = 4;  ctx.stroke();
         }
+      }
+    }
+
+    // ── Pass 3.5: in-world icons (currency, upgrade, blockade X, build dot) ─────
+    for (const cell of grid.cells.values()) {
+      if (vis(cell) !== 2) continue; // icons only when fully visible
+
+      const { x, y } = HexMath.toPixel(cell.q, cell.r, size);
+      const cx = x + offX, cy = y + offY;
+      const ir = size * 0.20;
+
+      if (cell.blockadeLevel > 0) {
+        const w = ir * 0.75;
+        ctx.strokeStyle = '#ff4466'; ctx.lineWidth = 2.5; ctx.lineCap = 'round';
+        ctx.beginPath(); ctx.moveTo(cx - w, cy - w); ctx.lineTo(cx + w, cy + w); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(cx + w, cy - w); ctx.lineTo(cx - w, cy + w); ctx.stroke();
+      } else if (cell.hasCurrency) {
+        ctx.beginPath(); ctx.arc(cx, cy, ir, 0, Math.PI * 2);
+        ctx.fillStyle   = '#ffd23f';
+        ctx.shadowColor = '#ffd23f'; ctx.shadowBlur = 10;
+        ctx.fill(); ctx.shadowBlur = 0;
+      } else if (cell.hasUpgrade) {
+        ctx.beginPath();
+        ctx.moveTo(cx,      cy - ir * 1.3);
+        ctx.lineTo(cx + ir, cy);
+        ctx.lineTo(cx,      cy + ir * 1.3);
+        ctx.lineTo(cx - ir, cy);
+        ctx.closePath();
+        ctx.fillStyle   = '#4a9eff';
+        ctx.shadowColor = '#4a9eff'; ctx.shadowBlur = 10;
+        ctx.fill(); ctx.shadowBlur = 0;
+      } else if (cell.isBuildable) {
+        ctx.beginPath(); ctx.arc(cx, cy, ir * 0.42, 0, Math.PI * 2);
+        ctx.fillStyle   = 'rgba(150,90,255,0.85)';
+        ctx.shadowColor = '#8844ff'; ctx.shadowBlur = 7;
+        ctx.fill(); ctx.shadowBlur = 0;
       }
     }
 

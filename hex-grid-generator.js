@@ -34,6 +34,7 @@ class HexGridGenerator {
     this._openGoalExit();
     this._removeRandomWalls(this.radius);
     this._tagBuildableCells();
+    this._placeLoot();
 
     return this;
   }
@@ -479,11 +480,57 @@ class HexGridGenerator {
 
   // ── Tagging ───────────────────────────────────────────────────────────────
 
+  // Select at most `radius` cells as buildable: ~65% from the A* path interior,
+  // ~35% from off-path cells. Buildable cells are where blockades can be placed.
   _tagBuildableCells() {
+    for (const cell of this.cells.values()) cell.isBuildable = false;
+
     const path    = this.findPath(this.startCell.key, this.goalCell.key);
     const pathSet = new Set(path);
+    const maxBuildable = this.radius;
+
+    // Path interior: skip first 2 and last 2 cells (near start/goal tunnels)
+    const pathCands = path.slice(2, -2).filter(k => {
+      const c = this.cells.get(k);
+      return c && !c.isTunnel && !c.isStart && !c.isGoal;
+    });
+    this.rng.shuffle(pathCands);
+
+    // Off-path cells
+    const offCands = [];
     for (const [key, cell] of this.cells) {
-      if (pathSet.has(key)) { cell.isBuildable = false; cell.isWalkable = true; }
+      if (!pathSet.has(key) && !cell.isTunnel && !cell.isStart && !cell.isGoal) {
+        offCands.push(key);
+      }
+    }
+    this.rng.shuffle(offCands);
+
+    const pathCount = Math.min(Math.ceil(maxBuildable * 0.65), pathCands.length);
+    const offCount  = Math.min(maxBuildable - pathCount, offCands.length);
+
+    for (let i = 0; i < pathCount; i++) this.cells.get(pathCands[i]).isBuildable = true;
+    for (let i = 0; i < offCount;  i++) this.cells.get(offCands[i]).isBuildable  = true;
+  }
+
+  // Populate dead-end cells (exactly 1 open passage) with currency and upgrades.
+  _placeLoot() {
+    const deadEnds = [];
+    for (const cell of this.cells.values()) {
+      if (cell.isTunnel || cell.isStart || cell.isGoal) continue;
+      const open = cell.walls.filter(w => !w).length;
+      if (open === 1) deadEnds.push(cell);
+    }
+    this.rng.shuffle(deadEnds);
+
+    const coinMax = Math.ceil(deadEnds.length * 0.55);
+    const upMax   = Math.floor(deadEnds.length * 0.18);
+
+    for (let i = 0; i < coinMax && i < deadEnds.length; i++) {
+      deadEnds[i].hasCurrency   = true;
+      deadEnds[i].currencyAmount = 1 + this.rng.int(0, 1);
+    }
+    for (let i = coinMax; i < coinMax + upMax && i < deadEnds.length; i++) {
+      deadEnds[i].hasUpgrade = true;
     }
   }
 

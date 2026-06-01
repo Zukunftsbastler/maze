@@ -42,9 +42,10 @@ const LEVEL_RADIUS = [3, 4, 5, 4, 5, 6, 6, 7, 7, 8];
 
 class ProgressionManager {
   constructor() {
-    this.level        = 1;
-    this.peekDuration = 2.0;   // seconds — player can change in pre-run UI (0 / 1 / 2)
-    this.peekHidePath = false; // hide A* path during peek for flat bonus
+    this.level           = 1;
+    this.peekDuration    = 2.0;   // seconds — player can change in pre-run UI (0 / 1 / 2)
+    this.peekHidePath    = false; // hide A* path during peek for flat bonus
+    this.generosityFactor = 4.0;  // setup-timer multiplier; lower = harder, higher score
 
     this._activeMechanics      = [];  // accumulated mechanic objects
     this._pendingPool          = this._shufflePool();
@@ -83,9 +84,12 @@ class ProgressionManager {
     const peekMult = this.peekDuration === 0 ? 2.0 : (this.peekDuration <= 1.0 ? 1.5 : 1.0);
     const pathBonus = this.peekHidePath ? 20 : 0;
     const sr       = cfg.sightRange;
-    // Linear interpolation: sightRange 4 → 1.0×, sightRange 1 → 2.0×
     const fowMult  = 1.0 + Math.max(0, 4 - sr) * (1.0 / 3);
-    return Math.round(base * peekMult * fowMult) + pathBonus;
+    // Generosity factor applies from level 4 (nemesis enabled): less time = higher score
+    const genMult  = this.level >= 4
+      ? (this.generosityFactor <= 1.0 ? 2.5 : this.generosityFactor <= 2.0 ? 1.5 : 1.0)
+      : 1.0;
+    return Math.round(base * peekMult * fowMult * genMult) + pathBonus;
   }
 
   get activeMechanicNames() { return this._activeMechanics.map(m => m.name); }
@@ -141,9 +145,31 @@ class GameLoop {
     this.totalScore    = parseInt(localStorage.getItem('hexmaze_totalscore') || '0', 10);
 
     // ── Run-state machine ────────────────────────────────────────────────────
-    // 'prerun' → 'peeking' → 'playing' → 'postrun'
+    // 'prerun' → 'peeking' → 'playing' (A/B) → 'nemesis' (C) → 'postrun'
     this._runState  = 'prerun';
     this._peekTimer = 0;
+
+    // ── Phase A/B setup timer (levels 4+) ────────────────────────────────────
+    this._setupTimer     = 0;
+    this._setupTimeTotal = 0;
+
+    // ── Phase C attack timer ──────────────────────────────────────────────────
+    this._attackTimer     = 0;
+    this._attackTimeTotal = 0;
+
+    // ── Build / Defence ───────────────────────────────────────────────────────
+    this._buildPhaseUnlocked = false;
+    this._playerCurrency     = 0;
+    this._buildUIOpen        = false;
+    this._buildTargetKey     = null;
+
+    // ── Nemesis ───────────────────────────────────────────────────────────────
+    this._nemesis     = new Nemesis();
+    this._nemesisSpeed = 130; // px/s — must match Nemesis.speed for timer calibration
+
+    // ── Retry support ─────────────────────────────────────────────────────────
+    this._levelStartOffsetQ  = 0;
+    this._levelStartPrevMaxQ = undefined;
 
     // ── Fog of War ─────────────────────────────────────────────────────────
     this.sightRange = 4;
@@ -238,7 +264,16 @@ class GameLoop {
         this._lastPanClientY = e.clientY;
         return;
       }
-      if (e.button === 0) { this._pointerActive = true; this._updatePointer(e); }
+      if (e.button === 0) {
+        // Build UI: intercept clicks on buildable cells during phase B or C
+        const canBuild = this._buildPhaseUnlocked &&
+          (this._runState === 'playing' || this._runState === 'nemesis');
+        if (canBuild && this._tryInterceptBuildClick(e.clientX, e.clientY)) return;
+        // Also close build panel if clicking elsewhere
+        if (this._buildUIOpen) { this._closeBuildUI(); return; }
+        this._pointerActive = true;
+        this._updatePointer(e);
+      }
     });
 
     this.canvas.addEventListener('mousemove', e => {
@@ -310,9 +345,27 @@ class GameLoop {
 
     // Post-run: "Next Level" button
     const btnNext = document.getElementById('btn-next-level');
-    if (btnNext) {
-      btnNext.addEventListener('click', () => this._advanceToNextLevel());
-    }
+    if (btnNext) btnNext.addEventListener('click', () => this._advanceToNextLevel());
+
+    // Post-run: "Retry" button
+    const btnRetry = document.getElementById('btn-retry');
+    if (btnRetry) btnRetry.addEventListener('click', () => this._retryLevel());
+
+    // Pre-run: generosity factor radios
+    document.querySelectorAll('input[name="generosity"]').forEach(el => {
+      el.addEventListener('change', () => {
+        this.progression.generosityFactor = parseFloat(el.value);
+        this._refreshPreRunScore();
+      });
+    });
+
+    // Build panel: place blockade
+    const btnBlockade = document.getElementById('btn-place-blockade');
+    if (btnBlockade) btnBlockade.addEventListener('click', () => this._placeBlockade());
+
+    // Build panel: cancel
+    const btnCloseBuild = document.getElementById('btn-close-build');
+    if (btnCloseBuild) btnCloseBuild.addEventListener('click', () => this._closeBuildUI());
   }
 
   // ── Camera helpers ─────────────────────────────────────────────────────────
@@ -352,6 +405,23 @@ class GameLoop {
     this._lastPinchMidClientY = midCY;
   }
 
+  // Returns true if the click hit a buildable cell and the build UI was opened.
+  _tryInterceptBuildClick(clientX, clientY) {
+    const rect = this.canvas.getBoundingClientRect();
+    const px = (clientX - rect.left) * (this.canvas.width  / rect.width);
+    const py = (clientY - rect.top)  * (this.canvas.height / rect.height);
+    const wx = (px - this.viewportW / 2) / this.cameraZoom + this.cameraX;
+    const wy = (py - this.viewportH / 2) / this.cameraZoom + this.cameraY;
+    const coord = HexMath.fromPixel(wx, wy, this.cellSize);
+    const key   = HexMath.key(coord.q, coord.r, coord.s);
+    const cell  = this.activeIsland?.grid.cells.get(key);
+    if (cell && cell.isBuildable && cell.blockadeLevel === 0) {
+      this._openBuildUI(key);
+      return true;
+    }
+    return false;
+  }
+
   // ── Pointer ────────────────────────────────────────────────────────────────
 
   _updatePointer(e) {
@@ -378,6 +448,10 @@ class GameLoop {
   }
 
   _generateNextIsland() {
+    // Snapshot for retry (before any offsetQ mutations)
+    this._levelStartOffsetQ  = this.nextOffsetQ;
+    this._levelStartPrevMaxQ = this.prevMaxQ;
+
     const pm  = this.progression;
     const cfg = pm.config;
 
@@ -469,6 +543,15 @@ class GameLoop {
     if (hpEl) hpEl.checked = false;
     pm.peekHidePath = false;
 
+    // Generosity factor selector (only from level 4)
+    const genSection = document.getElementById('pre-generosity-section');
+    if (genSection) {
+      genSection.style.display = pm.level >= 4 ? '' : 'none';
+    }
+    const defaultGen = document.querySelector('input[name="generosity"][value="4"]');
+    if (defaultGen) defaultGen.checked = true;
+    pm.generosityFactor = 4.0;
+
     overlay.style.display = 'flex';
     this._runState = 'prerun';
   }
@@ -531,39 +614,216 @@ class GameLoop {
     );
     this.cameraX = sx; this.cameraY = sy;
 
+    // Economy reset (resources carry no state between runs / retries)
+    this._buildPhaseUnlocked = false;
+    this._playerCurrency     = 0;
+
+    // Setup timer for nemesis-enabled levels
+    if (this.progression.level >= 4) {
+      const physDist       = Math.sqrt(3) * this.cellSize;
+      const baseTraversal  = this._levelPathLength * physDist / this.player.speed;
+      this._setupTimeTotal = baseTraversal * this.progression.generosityFactor;
+      this._setupTimer     = this._setupTimeTotal;
+    }
+
     this._runState = 'playing';
     this._levelCompleting = false;
     this._updateHUD();
   }
 
-  _showPostRun() {
-    const pm           = this.progression;
-    const diffScore    = this._levelDifficultyScore;
-    const pathLen      = this._levelPathLength;
-    const penalty      = this._visitedNonIdealCells.size;
-    const maxScore     = diffScore + pathLen;
-    const runScore     = Math.max(0, maxScore - penalty);
+  _showPostRun(won = true) {
+    const pm = this.progression;
+    let runScore = 0;
 
-    this.totalScore += runScore;
-    localStorage.setItem('hexmaze_totalscore', String(this.totalScore));
+    if (pm.level <= 3) {
+      // Classic scoring
+      const diffScore = this._levelDifficultyScore;
+      const pathLen   = this._levelPathLength;
+      const penalty   = this._visitedNonIdealCells.size;
+      const maxScore  = diffScore + pathLen;
+      runScore = Math.max(0, maxScore - penalty);
+      this._setPostRunContent({
+        title: `Level ${pm.level} Complete`,
+        won:   true,
+        rows: [
+          ['Max Score',          maxScore],
+          ['Penalty (off-path)', `−${penalty}`],
+          ['Run Score',          runScore],
+        ],
+      });
+    } else if (won) {
+      const timeBonus = Math.floor(this._attackTimer * 10);
+      runScore = this._levelDifficultyScore + timeBonus;
+      this._setPostRunContent({
+        title: `Level ${pm.level} Complete`,
+        won:   true,
+        rows: [
+          ['Difficulty Score',  this._levelDifficultyScore],
+          ['Time Bonus',        `+${timeBonus}`],
+          ['Run Score',         runScore],
+        ],
+      });
+    } else {
+      this._setPostRunContent({
+        title: `Level ${pm.level} — Nemesis!`,
+        won:   false,
+        rows: [['The Nemesis reached the goal.', ''], ['Run Score', 0]],
+      });
+    }
+
+    if (won) {
+      this.totalScore += runScore;
+      localStorage.setItem('hexmaze_totalscore', String(this.totalScore));
+    }
 
     const overlay = document.getElementById('post-run-overlay');
     if (overlay) {
-      document.getElementById('post-level-num').textContent  = pm.level;
-      document.getElementById('post-max-score').textContent  = maxScore;
-      document.getElementById('post-penalty').textContent    = penalty;
-      document.getElementById('post-run-score').textContent  = runScore;
       document.getElementById('post-total-score').textContent = this.totalScore;
       overlay.style.display = 'flex';
     }
 
     this._runState = 'postrun';
+    this._closeBuildUI();
     this._updateHUD();
+  }
+
+  _setPostRunContent({ title, won, rows }) {
+    const el = id => document.getElementById(id);
+    if (el('post-run-title')) el('post-run-title').textContent = title;
+    if (el('post-run-title')) {
+      el('post-run-title').style.color      = won ? '#00ff88' : '#ff4466';
+      el('post-run-title').style.textShadow = won
+        ? '0 0 16px rgba(0,255,136,0.6)'
+        : '0 0 16px rgba(255,68,102,0.6)';
+    }
+
+    const tbody = el('post-score-rows');
+    if (tbody) {
+      tbody.innerHTML = rows.map(([k, v]) =>
+        `<div class="overlay-kv"><span class="key">${k}</span><span class="value gold">${v}</span></div>`
+      ).join('');
+    }
+
+    // Show/hide buttons
+    if (el('btn-next-level')) el('btn-next-level').style.display = won ? ''     : 'none';
+    if (el('btn-retry'))      el('btn-retry').style.display      = won ? 'none' : '';
+  }
+
+  _startNemesisPhase() {
+    const physDist       = Math.sqrt(3) * this.cellSize;
+    this._attackTimeTotal = this._levelPathLength * physDist / this._nemesisSpeed;
+    this._attackTimer    = this._attackTimeTotal;
+
+    if (this.progression.level >= 4) {
+      const grid  = this.activeIsland.grid;
+      const spawn = this._spawnPosition(grid);
+      this._nemesis.spawn(spawn.x, spawn.y, grid.startCell.key, grid.goalCell.key);
+    }
+
+    this._closeBuildUI();
+    this._runState = 'nemesis';
+    this._updateHUD();
+  }
+
+  _retryLevel() {
+    const overlay = document.getElementById('post-run-overlay');
+    if (overlay) overlay.style.display = 'none';
+
+    // Restore pre-island-generation state so new island sits in the same slot
+    this.nextOffsetQ = this._levelStartOffsetQ;
+    this.prevMaxQ    = this._levelStartPrevMaxQ;
+    this.activeIsland = null;
+
+    this.activeIsland = this._generateNextIsland();
+    this._levelCompleting = false;
+    this._showPreRun();
+    this._updateHUD();
+  }
+
+  _closeBuildUI() {
+    this._buildUIOpen    = false;
+    this._buildTargetKey = null;
+    const panel = document.getElementById('build-panel');
+    if (panel) panel.style.display = 'none';
+  }
+
+  _openBuildUI(key) {
+    const grid = this.activeIsland?.grid;
+    if (!grid) return;
+    const cell = grid.cells.get(key);
+    if (!cell) return;
+
+    this._buildTargetKey = key;
+    this._buildUIOpen    = true;
+
+    const { x, y } = HexMath.toPixel(cell.q, cell.r, this.cellSize);
+    // World → screen
+    const sx = (x - this.cameraX) * this.cameraZoom + this.viewportW / 2;
+    const sy = (y - this.cameraY) * this.cameraZoom + this.viewportH / 2;
+    const rect = this.canvas.getBoundingClientRect();
+    const scaleX = rect.width  / this.canvas.width;
+    const scaleY = rect.height / this.canvas.height;
+    const screenX = sx * scaleX + rect.left;
+    const screenY = sy * scaleY + rect.top;
+
+    const panel = document.getElementById('build-panel');
+    if (panel) {
+      const wrap = document.getElementById('canvas-wrap');
+      const wr   = wrap.getBoundingClientRect();
+      panel.style.left    = `${(screenX - wr.left)}px`;
+      panel.style.top     = `${(screenY - wr.top - 80)}px`;
+      panel.style.display = 'block';
+
+      const btnB = document.getElementById('btn-place-blockade');
+      if (btnB) btnB.disabled = this._playerCurrency < 1;
+
+      const costEl = document.getElementById('build-currency-display');
+      if (costEl) costEl.textContent = `Currency: ${this._playerCurrency}`;
+    }
+  }
+
+  _placeBlockade() {
+    const grid = this.activeIsland?.grid;
+    if (!grid || !this._buildTargetKey || this._playerCurrency < 1) return;
+
+    const cell = grid.cells.get(this._buildTargetKey);
+    if (!cell || cell.blockadeLevel > 0) return;
+
+    // Validate: at least one path must remain for the nemesis
+    const fromKey = this._nemesis.active
+      ? (this._nemesis.currentCellKey ?? grid.startCell.key)
+      : grid.startCell.key;
+
+    cell.isWalkable = false;
+    const testPath  = grid.findPath(fromKey, grid.goalCell.key);
+    if (testPath.length === 0) {
+      cell.isWalkable = true;
+      this._showBuildMessage('No valid path — placement blocked!');
+      this._closeBuildUI();
+      return;
+    }
+
+    cell.blockadeLevel = 1;
+    this._playerCurrency -= 1;
+    this._nemesis.requestRepath();
+    this._fogDirty = true;
+    this._closeBuildUI();
+    this._updateHUD();
+  }
+
+  _showBuildMessage(text) {
+    const el = document.getElementById('build-message');
+    if (!el) return;
+    el.textContent = text;
+    el.style.opacity = '1';
+    clearTimeout(this._buildMsgTimer);
+    this._buildMsgTimer = setTimeout(() => { el.style.opacity = '0'; }, 2000);
   }
 
   _advanceToNextLevel() {
     const overlay = document.getElementById('post-run-overlay');
     if (overlay) overlay.style.display = 'none';
+    this._closeBuildUI();
 
     this.progression.advanceLevel();
     this._archiveActiveIsland();
@@ -694,36 +954,100 @@ class GameLoop {
       return;
     }
 
-    if (this._runState !== 'playing' || !this.activeIsland) return;
+    const active = this._runState === 'playing' || this._runState === 'nemesis';
+    if (!active || !this.activeIsland) return;
+
+    const grid = this.activeIsland.grid;
 
     // One-way door: block re-entry into archived islands
     if (this.player.worldX - this.player.radius < this.archiveBoundaryWorldX) {
       this.player.worldX = this.archiveBoundaryWorldX + this.player.radius;
     }
 
+    // ── Phase A/B: setup timer countdown ──────────────────────────────────────
+    if (this._runState === 'playing' && this.progression.level >= 4) {
+      this._setupTimer -= dt;
+      if (this._setupTimer <= 0) {
+        this._setupTimer = 0;
+        this._startNemesisPhase();
+        return;
+      }
+    }
+
+    // ── Phase C: attack timer + nemesis movement ───────────────────────────────
+    if (this._runState === 'nemesis') {
+      this._attackTimer -= dt;
+      if (this._attackTimer <= 0) {
+        this._attackTimer = 0;
+        if (!this._levelCompleting) {
+          this._levelCompleting = true;
+          setTimeout(() => this._showPostRun(true), 800);
+        }
+        this._updateHUD();
+        return;
+      }
+      if (this.progression.level >= 4) {
+        this._nemesis.update(dt, grid, this.cellSize);
+        if (this._nemesis.reachedGoal && !this._levelCompleting) {
+          this._levelCompleting = true;
+          setTimeout(() => this._showPostRun(false), 400);
+        }
+      }
+    }
+
+    // ── Player movement (phases A, B, C) ──────────────────────────────────────
     const wp = this._pointerToWorld();
-    this.player.update(dt, this.activeIsland.grid, this.cellSize, this.floorScale, {
+    this.player.update(dt, grid, this.cellSize, this.floorScale, {
       keys:          this._keys,
-      pointerActive: this._pointerActive,
+      pointerActive: this._pointerActive && !this._buildUIOpen,
       worldPointerX: wp.x,
       worldPointerY: wp.y,
     });
 
-    // Track non-ideal cell visits for scoring
     const ck = this.player.currentCellKey;
-    if (ck && !this._idealPathSet.has(ck)) {
+
+    // Track non-ideal visits (levels 1-3 only)
+    if (this.progression.level <= 3 && ck && !this._idealPathSet.has(ck)) {
       this._visitedNonIdealCells.add(ck);
     }
 
-    // Update fog whenever the player enters a new cell
+    // Collect loot on cell entry
+    if (ck) {
+      const cell = grid.cells.get(ck);
+      if (cell) {
+        if (cell.hasCurrency && cell.currencyAmount > 0) {
+          this._playerCurrency += cell.currencyAmount;
+          cell.hasCurrency = false; cell.currencyAmount = 0;
+          this._fogDirty = true;
+        }
+        if (cell.hasUpgrade) {
+          this._playerCurrency += 2; // upgrades convert to +2 currency
+          cell.hasUpgrade = false;
+          this._fogDirty = true;
+        }
+      }
+    }
+
+    // Fog update on cell change
     if (this._fogNeedsUpdate()) this._updateFogOfWar();
 
     this._updateHUD();
 
-    // Goal reached
-    if (ck === this.activeIsland.grid.goalCell.key && !this._levelCompleting) {
-      this._levelCompleting = true;
-      setTimeout(() => this._showPostRun(), 600);
+    // ── Goal reached ──────────────────────────────────────────────────────────
+    if (ck === grid.goalCell.key) {
+      if (this.progression.level >= 4) {
+        // Phase B: unlock building
+        if (!this._buildPhaseUnlocked) {
+          this._buildPhaseUnlocked = true;
+          this._updateHUD();
+        }
+      } else {
+        // Levels 1-3: direct win
+        if (!this._levelCompleting) {
+          this._levelCompleting = true;
+          setTimeout(() => this._showPostRun(true), 600);
+        }
+      }
     }
   }
 
@@ -757,11 +1081,14 @@ class GameLoop {
       ctx.drawImage(this.activeIsland.canvas, this.activeIsland.worldLeft, this.activeIsland.worldTop);
     }
 
-    if (this._runState === 'playing') {
+    if (this._runState === 'playing' || this._runState === 'nemesis') {
       if (this.showMovementAssist && this.player.currentCellKey && this.activeIsland) {
         this._renderMovementAssist(ctx);
       }
       this._renderPlayer(ctx);
+      if (this._runState === 'nemesis' && this._nemesis.active) {
+        this._renderNemesis(ctx);
+      }
     } else if (this._runState === 'peeking') {
       this._renderPlayer(ctx);
     }
@@ -846,6 +1173,28 @@ class GameLoop {
     ctx.restore();
   }
 
+  _renderNemesis(ctx) {
+    const n = this._nemesis, r = n.radius;
+    ctx.save();
+    const grd = ctx.createRadialGradient(n.worldX, n.worldY, 0, n.worldX, n.worldY, r * 3.5);
+    grd.addColorStop(0, 'rgba(255,68,102,0.50)');
+    grd.addColorStop(1, 'rgba(255,68,102,0)');
+    ctx.beginPath(); ctx.arc(n.worldX, n.worldY, r * 3.5, 0, Math.PI * 2);
+    ctx.fillStyle = grd; ctx.fill();
+    ctx.beginPath(); ctx.arc(n.worldX, n.worldY, r, 0, Math.PI * 2);
+    ctx.fillStyle   = '#ff4466';
+    ctx.shadowColor = '#ff4466';
+    ctx.shadowBlur  = 20; ctx.fill();
+    ctx.shadowBlur  = 0;
+    // Label
+    ctx.fillStyle    = '#fff';
+    ctx.font         = `bold ${Math.round(r * 0.9)}px monospace`;
+    ctx.textAlign    = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('N', n.worldX, n.worldY);
+    ctx.restore();
+  }
+
   // ── HUD ────────────────────────────────────────────────────────────────────
 
   _updateHUD() {
@@ -857,11 +1206,57 @@ class GameLoop {
     if (el('hud-sight'))      el('hud-sight').textContent      = this.sightRange >= 4 ? '∞' : this.sightRange;
     if (el('hud-total-score')) el('hud-total-score').textContent = this.totalScore;
 
+    // Currency
+    const cRow = el('hud-currency-row');
+    if (cRow) cRow.style.display = this.progression.level >= 4 ? '' : 'none';
+    if (el('hud-currency')) el('hud-currency').textContent = this._playerCurrency;
+
+    // Phase indicator (A / B / C)
+    const phaseRow = el('hud-phase-row');
+    if (phaseRow) phaseRow.style.display = pm.level >= 4 ? '' : 'none';
+    if (el('hud-phase')) {
+      const phaseLabel = this._runState === 'nemesis' ? 'C — Attack!'
+        : this._buildPhaseUnlocked ? 'B — Build' : 'A — Explore';
+      el('hud-phase').textContent = phaseLabel;
+      el('hud-phase').style.color = this._runState === 'nemesis' ? '#ff4466'
+        : this._buildPhaseUnlocked ? '#ffd23f' : '#4a9eff';
+    }
+
+    // Peek timer
     if (this._runState === 'peeking') {
       if (el('hud-peek')) el('hud-peek').textContent = this._peekTimer.toFixed(1) + 's';
       el('hud-peek-row')?.style && (el('hud-peek-row').style.display = '');
     } else {
       el('hud-peek-row')?.style && (el('hud-peek-row').style.display = 'none');
+    }
+
+    // Central phase timer display
+    this._updateTimerDisplay();
+  }
+
+  _updateTimerDisplay() {
+    const timerEl = document.getElementById('phase-timer');
+    const valEl   = document.getElementById('phase-timer-value');
+    const lblEl   = document.getElementById('phase-timer-label');
+    if (!timerEl || !valEl) return;
+
+    const lv = this.progression.level;
+
+    if (this._runState === 'playing' && lv >= 4) {
+      timerEl.style.display = '';
+      if (lblEl) lblEl.textContent = 'SETUP';
+      valEl.textContent = this._setupTimer.toFixed(1);
+      const pct = this._setupTimeTotal > 0 ? this._setupTimer / this._setupTimeTotal : 1;
+      timerEl.classList.toggle('timer-warning', pct <= 0.10);
+    } else if (this._runState === 'nemesis') {
+      timerEl.style.display = '';
+      if (lblEl) lblEl.textContent = 'ATTACK';
+      valEl.textContent = this._attackTimer.toFixed(1);
+      const pct = this._attackTimeTotal > 0 ? this._attackTimer / this._attackTimeTotal : 1;
+      timerEl.classList.toggle('timer-warning', pct <= 0.10);
+    } else {
+      timerEl.style.display = 'none';
+      timerEl.classList.remove('timer-warning');
     }
   }
 }

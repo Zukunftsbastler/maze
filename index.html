@@ -164,6 +164,72 @@
 
     /* Post-run score breakdown */
     .score-divider { border: none; border-top: 1px solid rgba(74,158,255,0.15); width: 100%; margin: 6px 0; }
+
+    /* ── Phase timer (centred, large) ── */
+    #phase-timer {
+      display: none; position: absolute; top: 14px; left: 50%;
+      transform: translateX(-50%);
+      background: rgba(6,6,15,0.85); border: 1px solid rgba(0,212,255,0.30);
+      border-radius: 10px; padding: 6px 22px; text-align: center;
+      pointer-events: none; z-index: 5;
+    }
+    #phase-timer-label {
+      font-size: 0.62rem; letter-spacing: 0.18em; color: #4a9eff; text-transform: uppercase;
+    }
+    #phase-timer-value {
+      font-size: 2.2rem; font-weight: bold; color: #c8d6e5; letter-spacing: 0.05em;
+      line-height: 1.1;
+    }
+    #phase-timer-value::after { content: 's'; font-size: 1rem; color: #556677; margin-left: 2px; }
+
+    @keyframes timer-shake {
+      0%,100% { transform: translateX(-50%); }
+      20%     { transform: translateX(calc(-50% - 7px)) rotate(-1.5deg); }
+      40%     { transform: translateX(calc(-50% + 7px)) rotate(1.5deg); }
+      60%     { transform: translateX(calc(-50% - 5px)) rotate(-1deg); }
+      80%     { transform: translateX(calc(-50% + 5px)) rotate(1deg); }
+    }
+    #phase-timer.timer-warning {
+      border-color: rgba(255,68,102,0.55);
+      animation: timer-shake 0.38s infinite;
+    }
+    #phase-timer.timer-warning #phase-timer-label,
+    #phase-timer.timer-warning #phase-timer-value { color: #ff4466; }
+
+    /* ── Build panel ── */
+    #build-panel {
+      display: none; position: absolute; z-index: 20;
+      background: rgba(6,6,15,0.95); border: 1px solid rgba(136,68,255,0.50);
+      border-radius: 8px; padding: 12px 16px; min-width: 160px;
+      font-size: 0.78rem; text-align: center;
+    }
+    #build-panel-title { color: #8844ff; letter-spacing: 0.1em; text-transform: uppercase;
+      font-size: 0.68rem; margin-bottom: 8px; }
+    #build-currency-display { color: #ffd23f; margin-bottom: 10px; font-weight: bold; }
+    #btn-place-blockade {
+      border-color: #8844ff; color: #c8a0ff; width: 100%; margin-bottom: 6px;
+    }
+    #btn-place-blockade:disabled { opacity: 0.35; cursor: not-allowed; }
+    #btn-close-build { border-color: #334455; color: #556677; width: 100%; font-size: 0.72rem; }
+
+    /* ── Build rejected message ── */
+    #build-message {
+      position: absolute; bottom: 60px; left: 50%; transform: translateX(-50%);
+      background: rgba(255,68,102,0.15); border: 1px solid rgba(255,68,102,0.40);
+      border-radius: 6px; padding: 6px 16px; font-size: 0.76rem; color: #ff4466;
+      pointer-events: none; opacity: 0; transition: opacity 0.3s; z-index: 15;
+      white-space: nowrap;
+    }
+
+    /* ── Generosity factor selector ── */
+    #pre-generosity-section { font-size: 0.80rem; }
+    .gen-radio-group { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+    .gen-radio-group label {
+      display: flex; align-items: center; gap: 5px;
+      color: #8899aa; cursor: pointer; font-size: 0.80rem;
+      text-transform: none; letter-spacing: 0;
+    }
+    .gen-radio-group input { accent-color: #8844ff; cursor: pointer; }
   </style>
 </head>
 <body>
@@ -230,6 +296,14 @@
         <span class="hud-label">SIGHT</span>
         <span class="hud-value" id="hud-sight">∞</span>
       </div>
+      <div class="hud-row" id="hud-phase-row" style="display:none">
+        <span class="hud-label">PHASE</span>
+        <span class="hud-value" id="hud-phase">—</span>
+      </div>
+      <div class="hud-row" id="hud-currency-row" style="display:none">
+        <span class="hud-label">CURRENCY</span>
+        <span class="hud-value gold" id="hud-currency">0</span>
+      </div>
       <div class="hud-row" id="hud-peek-row" style="display:none">
         <span class="hud-label">PEEK</span>
         <span class="hud-value gold" id="hud-peek">—</span>
@@ -246,6 +320,23 @@
       A&nbsp;S&nbsp;D<br>
       or Arrows
     </div>
+
+    <!-- Central phase timer -->
+    <div id="phase-timer">
+      <div id="phase-timer-label">SETUP</div>
+      <div id="phase-timer-value">0.0</div>
+    </div>
+
+    <!-- Build panel (floats near clicked cell) -->
+    <div id="build-panel">
+      <div id="build-panel-title">Build Spot</div>
+      <div id="build-currency-display">Currency: 0</div>
+      <button id="btn-place-blockade">Blockade (cost: 1)</button>
+      <button id="btn-close-build">Cancel</button>
+    </div>
+
+    <!-- Placement-rejected message -->
+    <div id="build-message"></div>
 
     <!-- ── Pre-Run Overlay ─────────────────────────────────────────────────── -->
     <div id="pre-run-overlay" class="game-overlay">
@@ -296,29 +387,31 @@
         </div>
       </div>
 
+      <!-- Generosity factor (level 4+ only) -->
+      <div id="pre-generosity-section" class="overlay-section" style="display:none">
+        <div style="color:#8844ff; font-size:0.76rem; letter-spacing:0.1em; text-transform:uppercase; margin-bottom:10px">
+          Setup Timer Generosity
+        </div>
+        <div class="gen-radio-group">
+          <label><input type="radio" name="generosity" value="4" checked> 4× &nbsp;<small style="color:#556677">(Easy, 1.0×)</small></label>
+          <label><input type="radio" name="generosity" value="2"> 2× &nbsp;<small style="color:#ffd23f">(Hard, 1.5×)</small></label>
+          <label><input type="radio" name="generosity" value="1"> 1× &nbsp;<small style="color:#ff4466">(Brutal, 2.5×)</small></label>
+        </div>
+        <div class="peek-hint">Less time = higher score multiplier</div>
+      </div>
+
       <button class="primary" id="btn-start-run">Start Run</button>
     </div>
 
     <!-- ── Post-Run Overlay ────────────────────────────────────────────────── -->
     <div id="post-run-overlay" class="game-overlay">
-      <div class="overlay-title" style="color:#00ff88; text-shadow:0 0 16px rgba(0,255,136,0.6)">
-        Level <span id="post-level-num">1</span> Complete
+      <div class="overlay-title" id="post-run-title" style="color:#00ff88; text-shadow:0 0 16px rgba(0,255,136,0.6)">
+        Level Complete
       </div>
 
+      <!-- Dynamic score rows -->
       <div class="overlay-section">
-        <div class="overlay-kv">
-          <span class="key">Max Score</span>
-          <span class="value gold" id="post-max-score">0</span>
-        </div>
-        <div class="overlay-kv" style="margin-top:4px">
-          <span class="key">Penalty (off-path tiles)</span>
-          <span class="value red">−<span id="post-penalty">0</span></span>
-        </div>
-        <hr class="score-divider">
-        <div class="overlay-kv">
-          <span class="key">Run Score</span>
-          <span class="value green" id="post-run-score">0</span>
-        </div>
+        <div id="post-score-rows"></div>
       </div>
 
       <div class="overlay-section">
@@ -329,6 +422,7 @@
       </div>
 
       <button class="primary accent" id="btn-next-level">Next Level →</button>
+      <button class="primary" id="btn-retry" style="display:none; border-color:#ff4466; color:#ff4466">↺ Retry Level</button>
     </div>
   </div>
 
@@ -338,6 +432,7 @@
   <script src="hex-grid-generator.js"></script>
   <script src="hex-renderer.js"></script>
   <script src="player.js"></script>
+  <script src="nemesis.js"></script>
   <script src="game-loop.js"></script>
   <script>
     // ── State ──────────────────────────────────────────────────────────────────
@@ -412,6 +507,8 @@
       // Hide any lingering overlays
       document.getElementById('pre-run-overlay').style.display  = 'none';
       document.getElementById('post-run-overlay').style.display = 'none';
+      document.getElementById('build-panel').style.display      = 'none';
+      document.getElementById('phase-timer').style.display      = 'none';
 
       if (gameLoop) { gameLoop.stop(); gameLoop = null; }
       generateAnalysis();

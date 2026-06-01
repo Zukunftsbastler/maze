@@ -18,6 +18,12 @@ class HexCell {
     // Fog of War — 0 = HIDDEN, 1 = REVEALED (memory), 2 = IN_SIGHT
     this.visibility = 0;
 
+    // Economy / Defence
+    this.hasCurrency    = false;
+    this.currencyAmount = 0;
+    this.hasUpgrade     = false;
+    this.blockadeLevel  = 0; // 0 = none, 1 = blockade placed
+
     // Generation bookkeeping
     this.visited = false;
     this.distFromCenter = 0;
@@ -40,7 +46,11 @@ class HexCell {
       isBuildable: this.isBuildable,
       isWalkable: this.isWalkable,
       terrainWeight: this.terrainWeight,
-      visibility: this.visibility,
+      visibility:     this.visibility,
+      hasCurrency:    this.hasCurrency,
+      currencyAmount: this.currencyAmount,
+      hasUpgrade:     this.hasUpgrade,
+      blockadeLevel:  this.blockadeLevel,
     };
   }
 
@@ -52,7 +62,11 @@ class HexCell {
     cell.isBuildable  = data.isBuildable;
     cell.isWalkable   = data.isWalkable;
     cell.terrainWeight = data.terrainWeight;
-    cell.visibility   = data.visibility ?? 0;
+    cell.visibility     = data.visibility     ?? 0;
+    cell.hasCurrency    = data.hasCurrency    ?? false;
+    cell.currencyAmount = data.currencyAmount ?? 0;
+    cell.hasUpgrade     = data.hasUpgrade     ?? false;
+    cell.blockadeLevel  = data.blockadeLevel  ?? 0;
     return cell;
   }
 }
