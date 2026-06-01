@@ -15,6 +15,9 @@ class HexCell {
     this.isWalkable = true;    // Enemies/player can traverse
     this.terrainWeight = 1;    // Puzzle: cost to enter this cell
 
+    // Fog of War — 0 = HIDDEN, 1 = REVEALED (memory), 2 = IN_SIGHT
+    this.visibility = 0;
+
     // Generation bookkeeping
     this.visited = false;
     this.distFromCenter = 0;
@@ -37,17 +40,19 @@ class HexCell {
       isBuildable: this.isBuildable,
       isWalkable: this.isWalkable,
       terrainWeight: this.terrainWeight,
+      visibility: this.visibility,
     };
   }
 
   static fromJSON(data) {
     const cell = new HexCell(data.q, data.r, data.s);
-    cell.walls = data.walls;
-    cell.isStart = data.isStart;
-    cell.isGoal = data.isGoal;
-    cell.isBuildable = data.isBuildable;
-    cell.isWalkable = data.isWalkable;
+    cell.walls        = data.walls;
+    cell.isStart      = data.isStart;
+    cell.isGoal       = data.isGoal;
+    cell.isBuildable  = data.isBuildable;
+    cell.isWalkable   = data.isWalkable;
     cell.terrainWeight = data.terrainWeight;
+    cell.visibility   = data.visibility ?? 0;
     return cell;
   }
 }

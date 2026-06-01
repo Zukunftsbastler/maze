@@ -12,7 +12,10 @@
       "Bash(git -C /Users/macadmin/Games/Maze status)",
       "Bash(git -C /Users/macadmin/Games/Maze init)",
       "Bash(git -C /Users/macadmin/Games/Maze add -A)",
-      "Bash(git -C /Users/macadmin/Games/Maze log --oneline)"
+      "Bash(git -C /Users/macadmin/Games/Maze log --oneline)",
+      "Bash(git -C /Users/macadmin/Games/Maze commit -m ' *)",
+      "Bash(git -C /Users/macadmin/Games/Maze remote add origin https://github.com/Zukunftsbastler/maze.git)",
+      "Bash(git -C /Users/macadmin/Games/Maze push -u origin main)"
     ]
   }
 }
