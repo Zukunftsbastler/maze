@@ -175,6 +175,13 @@ class GameLoop {
     this.sightRange = 4;
     this._fogDirty  = false;
 
+    // ── UI feedback timers ────────────────────────────────────────────────
+    this._spawnAnimTimer   = 0;      // > 0 → expanding rings on player spawn
+    this._phaseBannerText  = '';     // text shown in phase-transition banner
+    this._phaseBannerTimer = 0;      // counts down; banner drawn while > 0
+    this._phaseBannerColor = '#4a9eff';
+    this._peekExtraTimer   = 0;      // mandatory 2 s full-reveal before scored peek
+
     // ── Scoring ───────────────────────────────────────────────────────────────
     this._idealPathSet          = new Set();
     this._visitedNonIdealCells  = new Set();
@@ -269,6 +276,14 @@ class GameLoop {
         const canBuild = this._buildPhaseUnlocked &&
           (this._runState === 'playing' || this._runState === 'nemesis');
         if (canBuild && this._tryInterceptBuildClick(e.clientX, e.clientY)) return;
+        // Explain to player they must reach the goal first (phase A click on build spot)
+        if (!this._buildPhaseUnlocked && this.activeIsland &&
+            (this._runState === 'playing' || this._runState === 'nemesis')) {
+          if (this._isClickOnBuildableCell(e.clientX, e.clientY)) {
+            this._showBuildMessage('Erst das ZIEL (⬡ rot) erreichen, um bauen zu können!');
+            return;
+          }
+        }
         // Also close build panel if clicking elsewhere
         if (this._buildUIOpen) { this._closeBuildUI(); return; }
         this._pointerActive = true;
@@ -403,6 +418,25 @@ class GameLoop {
     this._applyPanDelta(midCX - this._lastPinchMidClientX, midCY - this._lastPinchMidClientY);
     this._lastPinchMidClientX = midCX;
     this._lastPinchMidClientY = midCY;
+  }
+
+  _showPhaseBanner(text, duration, color) {
+    this._phaseBannerText  = text;
+    this._phaseBannerTimer = duration;
+    this._phaseBannerColor = color || '#4a9eff';
+  }
+
+  // Returns true if the click coordinates land on a buildable (and unblocked) cell.
+  _isClickOnBuildableCell(clientX, clientY) {
+    const rect = this.canvas.getBoundingClientRect();
+    const px = (clientX - rect.left) * (this.canvas.width  / rect.width);
+    const py = (clientY - rect.top)  * (this.canvas.height / rect.height);
+    const wx = (px - this.viewportW / 2) / this.cameraZoom + this.cameraX;
+    const wy = (py - this.viewportH / 2) / this.cameraZoom + this.cameraY;
+    const coord = HexMath.fromPixel(wx, wy, this.cellSize);
+    const key   = HexMath.key(coord.q, coord.r, coord.s);
+    const cell  = this.activeIsland?.grid.cells.get(key);
+    return !!(cell && cell.isBuildable && cell.blockadeLevel === 0);
   }
 
   // Returns true if the click hit a buildable cell and the build UI was opened.
@@ -543,6 +577,10 @@ class GameLoop {
     if (hpEl) hpEl.checked = false;
     pm.peekHidePath = false;
 
+    // Phase explanation (only from level 4)
+    const phasesSection = document.getElementById('pre-phases-section');
+    if (phasesSection) phasesSection.style.display = pm.level >= 4 ? '' : 'none';
+
     // Generosity factor selector (only from level 4)
     const genSection = document.getElementById('pre-generosity-section');
     if (genSection) {
@@ -568,13 +606,7 @@ class GameLoop {
 
     const pm = this.progression;
 
-    if (pm.peekDuration === 0) {
-      // Skip peek phase entirely
-      this._endPeek();
-      return;
-    }
-
-    // Fully reveal island for peek
+    // Always fully reveal island for peek (mandatory 2 s + optional player choice)
     this._fullReveal();
     this.activeIsland.renderer.showPath = !pm.peekHidePath;
     if (!pm.peekHidePath) {
@@ -583,8 +615,9 @@ class GameLoop {
     }
     this._fogDirty = true;
 
-    this._peekTimer = pm.peekDuration;
-    this._runState  = 'peeking';
+    this._peekExtraTimer = 2.0;          // mandatory full-reveal — always 2 s
+    this._peekTimer      = pm.peekDuration;
+    this._runState       = 'peeking';
 
     // Centre camera on start cell during peek
     const { x: sx, y: sy } = HexMath.toPixel(
@@ -617,6 +650,12 @@ class GameLoop {
     // Economy reset (resources carry no state between runs / retries)
     this._buildPhaseUnlocked = false;
     this._playerCurrency     = 0;
+
+    // Spawn-pulse animation + phase banner
+    this._spawnAnimTimer = 2.5;
+    if (this.progression.level >= 4) {
+      this._showPhaseBanner('A — Erkunden', 3.5, '#4a9eff');
+    }
 
     // Setup timer for nemesis-enabled levels
     if (this.progression.level >= 4) {
@@ -722,6 +761,7 @@ class GameLoop {
 
     this._closeBuildUI();
     this._runState = 'nemesis';
+    this._showPhaseBanner('C — Angriff!', 3.5, '#ff4466');
     this._updateHUD();
   }
 
@@ -947,9 +987,21 @@ class GameLoop {
   // ── Update ─────────────────────────────────────────────────────────────────
 
   _update(dt) {
+    // Decrement overlay timers every frame regardless of run state
+    if (this._phaseBannerTimer > 0) this._phaseBannerTimer -= dt;
+    if (this._spawnAnimTimer   > 0) this._spawnAnimTimer   -= dt;
+
     if (this._runState === 'peeking') {
-      this._peekTimer -= dt;
-      if (this._peekTimer <= 0) this._endPeek();
+      if (this._peekExtraTimer > 0) {
+        this._peekExtraTimer -= dt;
+        if (this._peekExtraTimer <= 0) {
+          this._peekExtraTimer = 0;
+          if (this._peekTimer <= 0) { this._endPeek(); return; }
+        }
+      } else {
+        this._peekTimer -= dt;
+        if (this._peekTimer <= 0) this._endPeek();
+      }
       this._updateHUD();
       return;
     }
@@ -1016,9 +1068,21 @@ class GameLoop {
       const cell = grid.cells.get(ck);
       if (cell) {
         if (cell.hasCurrency && cell.currencyAmount > 0) {
-          this._playerCurrency += cell.currencyAmount;
+          const amt = cell.currencyAmount;
+          const isFirst = this._playerCurrency === 0;
+          this._playerCurrency += amt;
           cell.hasCurrency = false; cell.currencyAmount = 0;
           this._fogDirty = true;
+          if (isFirst && this.progression.level >= 4) {
+            this._showBuildMessage(`+${amt} Gold gesammelt! Baue damit Hindernisse am Ziel.`);
+          }
+          // Flash the HUD currency value
+          const hudC = document.getElementById('hud-currency');
+          if (hudC) {
+            hudC.classList.remove('hud-flash');
+            void hudC.offsetWidth;
+            hudC.classList.add('hud-flash');
+          }
         }
         if (cell.hasUpgrade) {
           this._playerCurrency += 2; // upgrades convert to +2 currency
@@ -1039,6 +1103,7 @@ class GameLoop {
         // Phase B: unlock building
         if (!this._buildPhaseUnlocked) {
           this._buildPhaseUnlocked = true;
+          this._showPhaseBanner('B — Bauen', 3.5, '#ffd23f');
           this._updateHUD();
         }
       } else {
@@ -1114,14 +1179,45 @@ class GameLoop {
 
     // Peek countdown overlay
     if (this._runState === 'peeking') {
-      const pct = this._peekTimer / this.progression.peekDuration;
-      ctx.fillStyle = `rgba(255,200,50,${0.06 * pct})`;
-      ctx.fillRect(0, 0, W, H);
-      ctx.fillStyle = `rgba(255,200,50,${0.7 * pct})`;
-      ctx.font = 'bold 22px monospace';
+      if (this._peekExtraTimer > 0) {
+        const totalLeft = this._peekExtraTimer + this._peekTimer;
+        ctx.fillStyle = 'rgba(0,255,136,0.07)';
+        ctx.fillRect(0, 0, W, H);
+        ctx.fillStyle = 'rgba(0,255,136,0.90)';
+        ctx.font = 'bold 24px monospace';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'top';
+        ctx.fillText(`EINPRÄGEN  ${totalLeft.toFixed(1)}s`, W / 2, 14);
+      } else if (this._peekTimer > 0) {
+        const pd  = this.progression.peekDuration;
+        const pct = pd > 0 ? this._peekTimer / pd : 0;
+        ctx.fillStyle = `rgba(255,200,50,${0.06 * pct})`;
+        ctx.fillRect(0, 0, W, H);
+        ctx.fillStyle = `rgba(255,200,50,${0.7 * pct})`;
+        ctx.font = 'bold 22px monospace';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'top';
+        ctx.fillText(`PEEK  ${this._peekTimer.toFixed(1)}s`, W / 2, 14);
+      }
+    }
+
+    // Phase-transition banner (drawn in screen space, no camera transform)
+    if (this._phaseBannerTimer > 0) {
+      const alpha = Math.min(1, this._phaseBannerTimer / 0.4);
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      const bh = 82;
+      ctx.fillStyle = 'rgba(6,6,15,0.92)';
+      ctx.fillRect(0, H / 2 - bh / 2, W, bh);
+      ctx.font = 'bold 33px monospace';
       ctx.textAlign = 'center';
-      ctx.textBaseline = 'top';
-      ctx.fillText(`PEEK  ${this._peekTimer.toFixed(1)}s`, W / 2, 12);
+      ctx.textBaseline = 'middle';
+      ctx.shadowColor = this._phaseBannerColor;
+      ctx.shadowBlur  = 28;
+      ctx.fillStyle   = this._phaseBannerColor;
+      ctx.fillText('PHASE ' + this._phaseBannerText, W / 2, H / 2);
+      ctx.shadowBlur = 0;
+      ctx.restore();
     }
   }
 
@@ -1157,6 +1253,24 @@ class GameLoop {
 
   _renderPlayer(ctx) {
     const p = this.player, r = p.radius, px = p.worldX, py = p.worldY;
+
+    // Spawn-pulse: 3 staggered expanding rings for ~2.5 s after spawning
+    if (this._spawnAnimTimer > 0) {
+      ctx.save();
+      const progress = 1 - this._spawnAnimTimer / 2.5;
+      for (let i = 0; i < 3; i++) {
+        const phase = (progress * 1.8 + i * 0.33) % 1;
+        const ringR = r + phase * r * 9;
+        const alpha = (1 - phase) * (this._spawnAnimTimer / 2.5) * 0.95;
+        ctx.beginPath();
+        ctx.arc(px, py, ringR, 0, Math.PI * 2);
+        ctx.strokeStyle = `rgba(0,255,136,${alpha.toFixed(3)})`;
+        ctx.lineWidth = 2.5;
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+
     ctx.save();
     const grd = ctx.createRadialGradient(px, py, 0, px, py, r * 3.2);
     grd.addColorStop(0, 'rgba(255,210,50,0.38)');

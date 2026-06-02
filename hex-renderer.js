@@ -287,20 +287,43 @@ class HexRenderer {
       if (v !== 2) continue;
 
       if (cell.hasCurrency) {
-        ctx.beginPath(); ctx.arc(cx, cy, ir, 0, Math.PI * 2);
+        const cr = ir * 1.4;
+        // Outer glow
+        ctx.beginPath(); ctx.arc(cx, cy, cr * 1.7, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(255,210,63,0.18)'; ctx.fill();
+        // Coin body
+        ctx.beginPath(); ctx.arc(cx, cy, cr, 0, Math.PI * 2);
         ctx.fillStyle   = '#ffd23f';
-        ctx.shadowColor = '#ffd23f'; ctx.shadowBlur = 10;
+        ctx.shadowColor = '#ffd23f'; ctx.shadowBlur = 18;
         ctx.fill(); ctx.shadowBlur = 0;
+        // Highlight
+        ctx.beginPath(); ctx.arc(cx - cr * 0.25, cy - cr * 0.25, cr * 0.38, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(255,255,220,0.45)'; ctx.fill();
+        // "G" label
+        ctx.fillStyle = '#06060f';
+        ctx.font = `bold ${Math.round(cr * 1.15)}px monospace`;
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText('G', cx, cy + cr * 0.06);
       } else if (cell.hasUpgrade) {
+        const ur = ir * 1.35;
+        // Outer glow
+        ctx.beginPath(); ctx.arc(cx, cy, ur * 1.7, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(74,158,255,0.18)'; ctx.fill();
+        // Diamond body
         ctx.beginPath();
-        ctx.moveTo(cx,      cy - ir * 1.3);
-        ctx.lineTo(cx + ir, cy);
-        ctx.lineTo(cx,      cy + ir * 1.3);
-        ctx.lineTo(cx - ir, cy);
+        ctx.moveTo(cx,      cy - ur * 1.3);
+        ctx.lineTo(cx + ur, cy);
+        ctx.lineTo(cx,      cy + ur * 1.3);
+        ctx.lineTo(cx - ur, cy);
         ctx.closePath();
         ctx.fillStyle   = '#4a9eff';
-        ctx.shadowColor = '#4a9eff'; ctx.shadowBlur = 10;
+        ctx.shadowColor = '#4a9eff'; ctx.shadowBlur = 16;
         ctx.fill(); ctx.shadowBlur = 0;
+        // "+" label
+        ctx.fillStyle = '#06060f';
+        ctx.font = `bold ${Math.round(ur * 1.2)}px monospace`;
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText('+', cx, cy + ur * 0.06);
       }
     }
 
