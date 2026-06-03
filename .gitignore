@@ -1,0 +1,13 @@
+# macOS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+
+# Claude Code (lokale Pfade und Berechtigungen)
+.claude/
+
+# Node (falls später ein Build-Schritt hinzukommt)
+node_modules/
+dist/

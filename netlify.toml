@@ -1,0 +1,22 @@
+[build]
+  publish = "."
+  # Kein build-Befehl notwendig
+
+# Sicherheits-Header für alle Seiten
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "SAMEORIGIN"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    Permissions-Policy = "camera=(), microphone=(), geolocation=()"
+    # 'unsafe-inline' ist nötig wegen des inline <script>-Blocks in index.html.
+    # Kein Risiko hier, da es keine User-Eingaben gibt die ungefiltert in den DOM kommen.
+    Content-Security-Policy = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:;"
+
+# Cache-Header für JS-Dateien
+[[headers]]
+  for = "/*.js"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
+    Content-Type = "application/javascript; charset=utf-8"
