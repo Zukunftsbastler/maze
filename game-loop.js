@@ -1,3 +1,125 @@
+// ── Icon banner helpers ────────────────────────────────────────────────────────
+
+const ICON_SVG = {
+  gold:     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><polygon points="10,1 18.66,6 18.66,14 10,19 1.34,14 1.34,6" fill="#ffd23f" stroke="#cc9900" stroke-width="1.2"/><text x="10" y="13.5" text-anchor="middle" font-size="8" font-family="monospace" font-weight="bold" fill="#664400">G</text></svg>`,
+  spot:     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><circle cx="10" cy="10" r="8" fill="none" stroke="#8844ff" stroke-width="1.5" stroke-dasharray="3,2"/><circle cx="10" cy="10" r="3" fill="#8844ff"/></svg>`,
+  blockade: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><rect x="1" y="5" width="18" height="10" rx="2" fill="#8844ff" stroke="#c8a0ff" stroke-width="1"/><line x1="7" y1="5" x2="7" y2="15" stroke="#c8a0ff" stroke-width="0.8"/><line x1="13" y1="5" x2="13" y2="15" stroke="#c8a0ff" stroke-width="0.8"/><line x1="1" y1="10" x2="19" y2="10" stroke="#c8a0ff" stroke-width="0.8"/></svg>`,
+};
+
+function parseIconString(str) {
+  return str.replace(/<icon-(\w+)>/g, (_, name) => {
+    const svg = ICON_SVG[name];
+    return svg ? `<span class="banner-icon">${svg}</span>` : `[${name}]`;
+  });
+}
+
+// ── Floating text manager ──────────────────────────────────────────────────────
+
+class FloatingTextManager {
+  constructor() { this._items = []; }
+
+  spawn(x, y, text, color = '#ffd23f') {
+    this._items.push({ x, y, text, color, life: 1.0 });
+  }
+
+  update(dt) {
+    for (const t of this._items) { t.life -= dt; t.y -= 38 * dt; }
+    this._items = this._items.filter(t => t.life > 0);
+  }
+
+  render(ctx) {
+    for (const t of this._items) {
+      ctx.save();
+      ctx.globalAlpha = Math.max(0, t.life);
+      ctx.font = 'bold 15px monospace';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle   = t.color;
+      ctx.shadowColor = t.color;
+      ctx.shadowBlur  = 6;
+      ctx.fillText(t.text, t.x, t.y);
+      ctx.restore();
+    }
+  }
+}
+
+// ── Coin arc manager (screen-space arcs: world → HUD) ─────────────────────────
+
+class CoinArcManager {
+  constructor() { this._arcs = []; }
+
+  spawn(sx, sy, ex, ey, onComplete) {
+    const ctrlX = (sx + ex) / 2 + (Math.random() - 0.5) * 50;
+    const ctrlY = Math.min(sy, ey) - 60 - Math.random() * 30;
+    this._arcs.push({ sx, sy, ex, ey, ctrlX, ctrlY, t: 0, dur: 0.65, onComplete });
+  }
+
+  update(dt) {
+    for (const a of this._arcs) {
+      if (a.t >= 1) continue;
+      a.t = Math.min(1, a.t + dt / a.dur);
+      if (a.t >= 1 && a.onComplete) a.onComplete();
+    }
+    this._arcs = this._arcs.filter(a => a.t < 1);
+  }
+
+  render(ctx) {
+    for (const a of this._arcs) {
+      const t  = a.t;
+      const bx = (1-t)*(1-t)*a.sx + 2*(1-t)*t*a.ctrlX + t*t*a.ex;
+      const by = (1-t)*(1-t)*a.sy + 2*(1-t)*t*a.ctrlY + t*t*a.ey;
+      const sc = 0.5 + (1 - Math.abs(t - 0.5) * 2) * 0.6;
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(bx, by, 6 * sc, 0, Math.PI * 2);
+      ctx.fillStyle   = '#ffd23f';
+      ctx.shadowColor = '#ffd23f';
+      ctx.shadowBlur  = 10 * sc;
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+}
+
+// ── Dust burst manager (world-space particle bursts) ──────────────────────────
+
+class DustBurstManager {
+  constructor() { this._bursts = []; }
+
+  spawn(x, y) {
+    const particles = Array.from({ length: 10 }, () => ({
+      angle: Math.random() * Math.PI * 2,
+      speed: 22 + Math.random() * 32,
+      r:     2.5 + Math.random() * 3,
+      color: Math.random() < 0.6 ? '#8844ff' : '#c8a0ff',
+    }));
+    this._bursts.push({ x, y, life: 0.55, max: 0.55, particles });
+  }
+
+  update(dt) {
+    for (const b of this._bursts) b.life -= dt;
+    this._bursts = this._bursts.filter(b => b.life > 0);
+  }
+
+  render(ctx) {
+    for (const b of this._bursts) {
+      const pct = b.life / b.max;
+      for (const p of b.particles) {
+        const dist = (1 - pct) * p.speed;
+        ctx.save();
+        ctx.globalAlpha = pct * 0.9;
+        ctx.beginPath();
+        ctx.arc(b.x + Math.cos(p.angle) * dist, b.y + Math.sin(p.angle) * dist, p.r * pct, 0, Math.PI * 2);
+        ctx.fillStyle   = p.color;
+        ctx.shadowColor = p.color;
+        ctx.shadowBlur  = 5;
+        ctx.fill();
+        ctx.restore();
+      }
+    }
+  }
+}
+
 // ── Mechanic Pool ──────────────────────────────────────────────────────────────
 // Each entry describes one gameplay mechanic that can be introduced starting
 // from Level 4, one per level, in a randomised order per game session.
@@ -194,6 +316,26 @@ class GameLoop {
     this.showMovementAssist = true;
     this._levelCompleting   = false; // brief flash before post-run
 
+    // ── Juice / effects ───────────────────────────────────────────────────────
+    this._floatingTexts  = new FloatingTextManager();
+    this._coinArcs       = new CoinArcManager();
+    this._dustBursts     = new DustBurstManager();
+    this._shakeTimer     = 0;
+    this._shakeIntensity = 0;
+    this._iconBannerTimer = null;
+
+    // ── Build hint (contextual tutorial) ──────────────────────────────────────
+    this._buildHintShown     = false;
+    this._buildHintDismissed = false;
+    this._buildHintCellKey   = null;
+    this._buildHintVisible   = false;
+
+    // ── Long-press (touch build) ──────────────────────────────────────────────
+    this._longPressHandle = null;
+    this._longPressX      = 0;
+    this._longPressY      = 0;
+    this._longPressMoved  = false;
+
     // ── Input ─────────────────────────────────────────────────────────────────
     this._keys          = {};
     this._pointerActive = false;
@@ -309,8 +451,28 @@ class GameLoop {
       if (!this._rafId) return;
       e.preventDefault();
       if (e.touches.length === 1 && !this._pinching) {
-        this._pointerActive = true; this._updatePointer(e.touches[0]);
+        const touch = e.touches[0];
+        this._pointerActive = true;
+        this._updatePointer(touch);
+
+        // Long-press: build on any valid spot when build phase is unlocked
+        const canBuild = this._buildPhaseUnlocked &&
+          (this._runState === 'playing' || this._runState === 'nemesis');
+        if (canBuild && this._isClickOnBuildableCell(touch.clientX, touch.clientY)) {
+          this._longPressX     = touch.clientX;
+          this._longPressY     = touch.clientY;
+          this._longPressMoved = false;
+          clearTimeout(this._longPressHandle);
+          this._longPressHandle = setTimeout(() => {
+            this._longPressHandle = null;
+            if (!this._longPressMoved) {
+              this._pointerActive = false;
+              this._tryInterceptBuildClick(this._longPressX, this._longPressY);
+            }
+          }, 420);
+        }
       } else if (e.touches.length === 2) {
+        this._cancelLongPress();
         this._pointerActive = false; this._pinching = true;
         this._initPinch(e.touches[0], e.touches[1]);
       }
@@ -321,11 +483,22 @@ class GameLoop {
       if (this._pinching && e.touches.length >= 2) {
         this._handlePinch(e.touches[0], e.touches[1]);
       } else if (!this._pinching && e.touches.length === 1 && this._pointerActive) {
-        this._updatePointer(e.touches[0]);
+        const touch = e.touches[0];
+        // Cancel long-press if finger drifts more than 12 px
+        if (this._longPressHandle) {
+          const dx = touch.clientX - this._longPressX;
+          const dy = touch.clientY - this._longPressY;
+          if (dx * dx + dy * dy > 144) {
+            this._longPressMoved = true;
+            this._cancelLongPress();
+          }
+        }
+        this._updatePointer(touch);
       }
     }, { passive: false });
 
     window.addEventListener('touchend', e => {
+      this._cancelLongPress();
       if (e.touches.length === 0) { this._pointerActive = false; this._pinching = false; }
       else if (e.touches.length === 1) {
         this._pinching = false;
@@ -424,6 +597,11 @@ class GameLoop {
     this._phaseBannerText  = text;
     this._phaseBannerTimer = duration;
     this._phaseBannerColor = color || '#4a9eff';
+  }
+
+  _cancelLongPress() {
+    clearTimeout(this._longPressHandle);
+    this._longPressHandle = null;
   }
 
   // Returns true if the click coordinates land on a buildable (and unblocked) cell.
@@ -651,6 +829,13 @@ class GameLoop {
     this._buildPhaseUnlocked = false;
     this._playerCurrency     = 0;
 
+    // Hide build hint if it lingered from a previous Phase B
+    if (this._buildHintVisible) {
+      this._buildHintVisible = false;
+      const hintEl = document.getElementById('build-hint');
+      if (hintEl) hintEl.classList.remove('visible');
+    }
+
     // Spawn-pulse animation + phase banner
     this._spawnAnimTimer = 2.5;
     if (this.progression.level >= 4) {
@@ -796,6 +981,8 @@ class GameLoop {
     this._buildTargetKey = key;
     this._buildUIOpen    = true;
 
+    if (this._buildHintVisible) this._dismissBuildHint();
+
     const { x, y } = HexMath.toPixel(cell.q, cell.r, this.cellSize);
     // World → screen
     const sx = (x - this.cameraX) * this.cameraZoom + this.viewportW / 2;
@@ -816,6 +1003,8 @@ class GameLoop {
 
       const btnB = document.getElementById('btn-place-blockade');
       if (btnB) btnB.disabled = this._playerCurrency < 1;
+
+      if (this._playerCurrency < 1) this._triggerHUDShake();
 
       const costEl = document.getElementById('build-currency-display');
       if (costEl) costEl.textContent = `Currency: ${this._playerCurrency}`;
@@ -847,6 +1036,13 @@ class GameLoop {
     this._playerCurrency -= 1;
     this._nemesis.requestRepath();
     this._fogDirty = true;
+
+    // Construction impact: camera shake + dust burst + HUD flash
+    this._triggerCameraShake(0.15, 3);
+    const { x: bx, y: by } = HexMath.toPixel(cell.q, cell.r, this.cellSize);
+    this._dustBursts.spawn(bx, by);
+    this._triggerHUDFlash();
+
     this._closeBuildUI();
     this._updateHUD();
   }
@@ -858,6 +1054,92 @@ class GameLoop {
     el.style.opacity = '1';
     clearTimeout(this._buildMsgTimer);
     this._buildMsgTimer = setTimeout(() => { el.style.opacity = '0'; }, 2000);
+  }
+
+  // ── Icon banner ────────────────────────────────────────────────────────────
+
+  _showPhaseIconBanner(str, durationMs = 5000) {
+    const el = document.getElementById('phase-icon-banner');
+    if (!el) return;
+    el.innerHTML = parseIconString(str);
+    el.classList.add('visible');
+    clearTimeout(this._iconBannerTimer);
+    this._iconBannerTimer = setTimeout(() => el.classList.remove('visible'), durationMs);
+  }
+
+  // ── HUD juice ──────────────────────────────────────────────────────────────
+
+  _triggerHUDFlash() {
+    const el = document.getElementById('hud-currency');
+    if (!el) return;
+    el.classList.remove('hud-flash');
+    void el.offsetWidth;
+    el.classList.add('hud-flash');
+  }
+
+  _triggerHUDShake() {
+    const el = document.getElementById('hud-currency');
+    if (!el) return;
+    el.classList.remove('hud-shake', 'hud-flash');
+    void el.offsetWidth;
+    el.classList.add('hud-shake');
+  }
+
+  // ── Camera shake ───────────────────────────────────────────────────────────
+
+  _triggerCameraShake(duration = 0.15, intensity = 3) {
+    this._shakeTimer     = duration;
+    this._shakeIntensity = intensity;
+  }
+
+  // ── Build hint ─────────────────────────────────────────────────────────────
+
+  _showBuildHint() {
+    const grid = this.activeIsland?.grid;
+    if (!grid) return;
+
+    // Find buildable cell nearest to camera center
+    let bestDist = Infinity, bestCell = null;
+    for (const cell of grid.cells.values()) {
+      if (!cell.isBuildable || cell.blockadeLevel > 0) continue;
+      const { x, y } = HexMath.toPixel(cell.q, cell.r, this.cellSize);
+      const d = (x - this.cameraX) ** 2 + (y - this.cameraY) ** 2;
+      if (d < bestDist) { bestDist = d; bestCell = cell; }
+    }
+    if (!bestCell) return;
+
+    this._buildHintCellKey = HexMath.key(bestCell.q, bestCell.r, bestCell.s);
+    this._buildHintVisible  = true;
+    this._updateBuildHintPosition();
+  }
+
+  _updateBuildHintPosition() {
+    if (!this._buildHintVisible || !this.activeIsland) return;
+    const cell = this.activeIsland.grid.cells.get(this._buildHintCellKey);
+    if (!cell) return;
+
+    const { x, y } = HexMath.toPixel(cell.q, cell.r, this.cellSize);
+    const sx = (x - this.cameraX) * this.cameraZoom + this.viewportW / 2;
+    const sy = (y - this.cameraY) * this.cameraZoom + this.viewportH / 2;
+
+    const rect = this.canvas.getBoundingClientRect();
+    const wrap = document.getElementById('canvas-wrap');
+    const wr   = wrap.getBoundingClientRect();
+    const scaleX = rect.width  / this.canvas.width;
+    const scaleY = rect.height / this.canvas.height;
+
+    const el = document.getElementById('build-hint');
+    if (!el) return;
+    el.style.left = `${sx * scaleX + rect.left - wr.left - 72}px`;
+    el.style.top  = `${sy * scaleY + rect.top  - wr.top  - 58}px`;
+    el.classList.add('visible');
+  }
+
+  _dismissBuildHint() {
+    this._buildHintVisible   = false;
+    this._buildHintDismissed = true;
+    const el = document.getElementById('build-hint');
+    if (el) el.classList.remove('visible');
   }
 
   _advanceToNextLevel() {
@@ -990,6 +1272,15 @@ class GameLoop {
     // Decrement overlay timers every frame regardless of run state
     if (this._phaseBannerTimer > 0) this._phaseBannerTimer -= dt;
     if (this._spawnAnimTimer   > 0) this._spawnAnimTimer   -= dt;
+    if (this._shakeTimer       > 0) this._shakeTimer       -= dt;
+
+    // Update particle/animation systems
+    this._floatingTexts.update(dt);
+    this._coinArcs.update(dt);
+    this._dustBursts.update(dt);
+
+    // Keep build hint positioned over its target cell
+    if (this._buildHintVisible) this._updateBuildHintPosition();
 
     if (this._runState === 'peeking') {
       if (this._peekExtraTimer > 0) {
@@ -1076,12 +1367,23 @@ class GameLoop {
           if (isFirst && this.progression.level >= 4) {
             this._showBuildMessage(`+${amt} Gold gesammelt! Baue damit Hindernisse am Ziel.`);
           }
-          // Flash the HUD currency value
-          const hudC = document.getElementById('hud-currency');
-          if (hudC) {
-            hudC.classList.remove('hud-flash');
-            void hudC.offsetWidth;
-            hudC.classList.add('hud-flash');
+
+          // Floating "+N" text at the cell world position
+          const { x: cx, y: cy } = HexMath.toPixel(cell.q, cell.r, this.cellSize);
+          this._floatingTexts.spawn(cx, cy, `+${amt}`);
+
+          // Coin arc: cell world coords → HUD currency element (canvas coords)
+          const startCX = (cx - this.cameraX) * this.cameraZoom + this.viewportW / 2;
+          const startCY = (cy - this.cameraY) * this.cameraZoom + this.viewportH / 2;
+          const hudEl = document.getElementById('hud-currency');
+          if (hudEl) {
+            const cr = this.canvas.getBoundingClientRect();
+            const hr = hudEl.getBoundingClientRect();
+            const endCX = (hr.left + hr.width  / 2 - cr.left) * (this.canvas.width  / cr.width);
+            const endCY = (hr.top  + hr.height / 2 - cr.top)  * (this.canvas.height / cr.height);
+            this._coinArcs.spawn(startCX, startCY, endCX, endCY, () => this._triggerHUDFlash());
+          } else {
+            this._triggerHUDFlash();
           }
         }
         if (cell.hasUpgrade) {
@@ -1104,6 +1406,14 @@ class GameLoop {
         if (!this._buildPhaseUnlocked) {
           this._buildPhaseUnlocked = true;
           this._showPhaseBanner('B — Bauen', 3.5, '#ffd23f');
+          this._showPhaseIconBanner(
+            'Gib <icon-gold> an einer <icon-spot> aus, um eine <icon-blockade> zu bauen',
+            5500
+          );
+          if (!this._buildHintShown) {
+            this._buildHintShown = true;
+            this._showBuildHint();
+          }
           this._updateHUD();
         }
       } else {
@@ -1133,8 +1443,12 @@ class GameLoop {
     ctx.fillStyle = '#06060f';
     ctx.fillRect(0, 0, W, H);
 
+    // Camera shake offset
+    const shakeX = this._shakeTimer > 0 ? (Math.random() - 0.5) * 2 * this._shakeIntensity : 0;
+    const shakeY = this._shakeTimer > 0 ? (Math.random() - 0.5) * 2 * this._shakeIntensity : 0;
+
     ctx.save();
-    ctx.translate(W / 2, H / 2);
+    ctx.translate(W / 2 + shakeX, H / 2 + shakeY);
     ctx.scale(this.cameraZoom, this.cameraZoom);
     ctx.translate(-this.cameraX, -this.cameraY);
 
@@ -1157,6 +1471,10 @@ class GameLoop {
     } else if (this._runState === 'peeking') {
       this._renderPlayer(ctx);
     }
+
+    // World-space effects (inside camera transform)
+    this._dustBursts.render(ctx);
+    this._floatingTexts.render(ctx);
 
     if (this._levelCompleting) {
       ctx.fillStyle = 'rgba(0,255,136,0.06)';
@@ -1219,6 +1537,9 @@ class GameLoop {
       ctx.shadowBlur = 0;
       ctx.restore();
     }
+
+    // Screen-space coin arcs (currency pickup → HUD)
+    this._coinArcs.render(ctx);
   }
 
   _renderMovementAssist(ctx) {
