@@ -157,9 +157,9 @@
     .overlay-body::-webkit-scrollbar-track { background: transparent; }
     .overlay-body::-webkit-scrollbar-thumb { background: rgba(74,158,255,0.25); border-radius: 2px; }
 
-    /* Sticky action buttons — always visible below the scroll area */
-    .game-overlay > button { flex-shrink: 0; margin-top: 8px; }
-    .game-overlay > button + button { margin-top: 4px; }
+    /* Action buttons — always visible above the scroll area */
+    .game-overlay > button { flex-shrink: 0; margin-top: 8px; margin-bottom: 8px; }
+    .game-overlay > button + button { margin-top: 0; margin-bottom: 4px; }
 
     .overlay-title {
       flex-shrink: 0;
@@ -303,6 +303,21 @@
     }
     .hud-shake { animation: hud-shake 0.45s ease-out; }
 
+    /* ── Lore / narrative flavor text ── */
+    .lore-text {
+      font-family: 'Georgia', 'Times New Roman', serif;
+      font-style: italic;
+      color: #b89972;
+      font-size: 0.80rem;
+      line-height: 1.75;
+      padding: 10px 14px 10px 16px;
+      border-left: 2px solid rgba(184,153,114,0.38);
+      background: rgba(184,153,114,0.055);
+      border-radius: 0 6px 6px 0;
+      max-width: 420px;
+      width: 100%;
+    }
+
     /* ── Build action hint ── */
     #build-hint {
       display: none; position: absolute; z-index: 8;
@@ -441,10 +456,16 @@
 
     <!-- ── Pre-Run Overlay ─────────────────────────────────────────────────── -->
     <div id="pre-run-overlay" class="game-overlay">
-      <div class="overlay-title">Level <span id="pre-level-num">1</span></div>
+      <div class="overlay-title" id="pre-run-title">Level <span id="pre-level-num">1</span></div>
 
-      <!-- Scrollable body — everything except the CTA button -->
+      <!-- CTA — always visible at the top -->
+      <button class="primary" id="btn-start-run">Start Run</button>
+
+      <!-- Scrollable body -->
       <div class="overlay-body">
+
+        <!-- Narrative lore (level 1 intro, expedition journal entries) -->
+        <div id="pre-run-lore" class="lore-text" style="display:none"></div>
 
         <!-- New mechanic banner (hidden when no new mechanic) -->
         <div id="pre-new-mechanic">
@@ -473,6 +494,10 @@
 
         <!-- Stats -->
         <div class="overlay-section">
+          <div class="overlay-kv" id="exp-progress-row" style="display:none">
+            <span class="key">Remaining</span>
+            <span class="value green" id="exp-progress-val">—</span>
+          </div>
           <div class="overlay-kv">
             <span class="key">Difficulty Score</span>
             <span class="value gold" id="pre-difficulty">—</span>
@@ -518,9 +543,6 @@
         </div>
 
       </div><!-- /.overlay-body -->
-
-      <!-- Sticky CTA — always visible -->
-      <button class="primary" id="btn-start-run">Start Run</button>
     </div>
 
     <!-- ── Post-Run Overlay ────────────────────────────────────────────────── -->
@@ -528,6 +550,10 @@
       <div class="overlay-title" id="post-run-title" style="color:#00ff88; text-shadow:0 0 16px rgba(0,255,136,0.6)">
         Level Complete
       </div>
+
+      <!-- CTAs — always visible at the top -->
+      <button class="primary accent" id="btn-next-level">Next Level →</button>
+      <button class="primary" id="btn-retry" style="display:none; border-color:#ff4466; color:#ff4466">↺ Retry Level</button>
 
       <!-- Scrollable body -->
       <div class="overlay-body">
@@ -538,15 +564,14 @@
 
         <div class="overlay-section">
           <div class="overlay-kv">
-            <span class="key">Total Score</span>
+            <span class="key" id="post-score-label">Total Score</span>
             <span class="value gold" id="post-total-score">0</span>
           </div>
         </div>
-      </div><!-- /.overlay-body -->
 
-      <!-- Sticky CTAs — always visible -->
-      <button class="primary accent" id="btn-next-level">Next Level →</button>
-      <button class="primary" id="btn-retry" style="display:none; border-color:#ff4466; color:#ff4466">↺ Retry Level</button>
+        <!-- Narrative lore (level 3 victory) -->
+        <div id="post-run-lore" class="lore-text" style="display:none"></div>
+      </div><!-- /.overlay-body -->
     </div>
   </div>
 
@@ -557,6 +582,8 @@
   <script src="hex-renderer.js"></script>
   <script src="player.js"></script>
   <script src="nemesis.js"></script>
+  <script src="expedition-maps.js"></script>
+  <script src="panoptikum.js"></script>
   <script src="game-loop.js"></script>
   <script>
     // ── State ──────────────────────────────────────────────────────────────────
@@ -565,6 +592,23 @@
     let analysisRenderer = null;
     let gameLoop         = null;
     let currentMode      = 'analysis';
+
+    const expeditionMaps = new ExpeditionMaps();
+    const panoptikum     = new PanoptikumHub(expeditionMaps);
+
+    // ── Expedition flow helpers ────────────────────────────────────────────────
+    function startExpeditionFlow(zone) {
+      panoptikum.enterPlayMode();
+      enterPlayMode({
+        expedition: zone,
+        onComplete: score => {
+          enterAnalysisMode();
+          expeditionMaps.onExpeditionComplete(zone.id, score);
+          panoptikum.syncScore();
+          panoptikum.showViewB(startExpeditionFlow);
+        },
+      });
+    }
 
     // ── Analysis Mode ──────────────────────────────────────────────────────────
     function getAnalysisParams() {
@@ -601,7 +645,7 @@
     }
 
     // ── Mode switching ─────────────────────────────────────────────────────────
-    function enterPlayMode() {
+    function enterPlayMode(config = {}) {
       currentMode = 'play';
       document.body.classList.add('play-mode');
       document.getElementById('btn-mode').textContent = 'Analysis Mode';
@@ -614,7 +658,14 @@
 
       gameLoop = new GameLoop(canvas);
       gameLoop.setShowMovementAssist(document.getElementById('show-assist').checked);
-      gameLoop.start();
+
+      if (config.tutorial) {
+        gameLoop.startTutorial(config.onComplete);
+      } else if (config.expedition) {
+        gameLoop.startExpedition(config.expedition, config.onComplete);
+      } else {
+        gameLoop.start();
+      }
     }
 
     function enterAnalysisMode() {
@@ -640,7 +691,29 @@
 
     // ── Event wiring ───────────────────────────────────────────────────────────
     document.getElementById('btn-mode').addEventListener('click', () => {
-      if (currentMode === 'analysis') enterPlayMode(); else enterAnalysisMode();
+      if (currentMode === 'analysis') {
+        const tutorialDone    = !!localStorage.getItem('hexmaze_tutorial_done');
+        const panoptikumShown = !!localStorage.getItem('hexmaze_panoptikum_restored');
+        if (!tutorialDone) {
+          // First time: run tutorial, then show dirty panoptikum transition
+          enterPlayMode({
+            tutorial: true,
+            onComplete: () => {
+              localStorage.setItem('hexmaze_tutorial_done', '1');
+              enterAnalysisMode();
+              panoptikum.showTransition(() => panoptikum.showHub(startExpeditionFlow));
+            },
+          });
+        } else if (!panoptikumShown) {
+          // Tutorial done but transition not yet claimed (e.g. page reload mid-transition)
+          panoptikum.showTransition(() => panoptikum.showHub(startExpeditionFlow));
+        } else {
+          // Fully set up: go straight to hub
+          panoptikum.showHub(startExpeditionFlow);
+        }
+      } else {
+        enterAnalysisMode();
+      }
     });
 
     ['radius','winding','cellsize'].forEach(id => {

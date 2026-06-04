@@ -160,6 +160,59 @@ const MECHANIC_POOL = [
 // Non-linear base radius per level (index = level - 1, clamped at last entry).
 const LEVEL_RADIUS = [3, 4, 5, 4, 5, 6, 6, 7, 7, 8];
 
+// ── Journal entries (Level 4 + expeditions) ────────────────────────────────────
+// Each entry combines urgency/paranoia with a vague Nemesis hint.
+
+const JOURNAL_ENTRIES = [
+  "The shadows here feel alive, and the feeling of being observed makes my skin crawl. Whatever guards this forgotten knowledge does not welcome visitors. I must work fast, grab the data, and run. For science.",
+  "The air is heavy with the smell of old metal and something else — something alive. I can hear faint shifting in the dark. I am not alone here. Move quickly.",
+  "I am being watched. The feeling is unmistakable now. A presence older than the city itself has taken notice of my intrusions. Speed is my only ally.",
+  "There is an intelligence to the darkness here. Every corridor I map, something seems to remap behind me. Something territorial and ancient stirs in these forgotten workshops. I must not linger.",
+  "The dust tells stories of footprints that are not my own — and they are fresh. Something prowls these depths with purpose. I will gather what I need and leave before it finds me.",
+  "My lantern casts long shadows, but the shadows move even when I stand still. A guardian of the deep, protecting these relics. Or protecting the world from what is buried here. I must be quick.",
+  "The artifacts I seek are real — I can feel their pull. But the creature that stalks these halls grows bolder. The gap between arrival and escape is narrowing. Work fast.",
+  "Something heavy breathes in passages I have already cleared. An ancient custodian, patient and territorial. It knows my patterns. I must vary my routes and never stay long.",
+];
+
+// ── Expedition Session ─────────────────────────────────────────────────────────
+// Drop-in replacement for ProgressionManager during expedition runs.
+// Always reports level >= 4 so Nemesis, build phase, etc. are active from lab 1.
+
+class ExpeditionSession {
+  constructor(zone, runIndex) {
+    this.level            = 4;
+    this.peekDuration     = 2.0;
+    this.peekHidePath     = false;
+    this.generosityFactor = zone.generosityFactor ?? 4.0;
+    this._zone     = zone;
+    this._runIndex = runIndex;
+  }
+
+  get config() {
+    return {
+      radius:       this._zone.startRadius + this._runIndex,
+      sightRange:   this._zone.sightRange  ?? 4,
+      topology:     'SINGLE_BLOB',
+      clusterCount: 2,
+    };
+  }
+
+  difficultyScore(pathLength) {
+    const cfg      = this.config;
+    const base     = cfg.radius * 10 + pathLength * 5;
+    const peekMult = this.peekDuration === 0 ? 2.0 : this.peekDuration <= 1.0 ? 1.5 : 1.0;
+    const pathBonus = this.peekHidePath ? 20 : 0;
+    const fowMult  = 1.0 + Math.max(0, 4 - cfg.sightRange) * (1.0 / 3);
+    const genMult  = this.generosityFactor <= 1.0 ? 2.5
+                   : this.generosityFactor <= 2.0 ? 1.5 : 1.0;
+    return Math.round(base * peekMult * fowMult * genMult) + pathBonus;
+  }
+
+  advanceLevel() { /* run index is managed externally */ }
+  get activeMechanicNames() { return []; }
+  get newMechanicThisLevel() { return null; }
+}
+
 // ── Progression Manager ────────────────────────────────────────────────────────
 
 class ProgressionManager {
@@ -324,6 +377,14 @@ class GameLoop {
     this._shakeIntensity = 0;
     this._iconBannerTimer = null;
 
+    // ── Tutorial / Expedition ─────────────────────────────────────────────────
+    this._tutorialCallback  = null;   // fired after level 3 "Next Level"
+    this._expeditionMode    = false;
+    this._expeditionZone    = null;   // zone object from ExpeditionMaps
+    this._expeditionRunIdx  = 0;      // current lab index (0-based)
+    this._expeditionScore   = 0;      // running score for the active expedition
+    this._onExpeditionDone  = null;   // callback(totalScore) on expedition complete
+
     // ── Build hint (contextual tutorial) ──────────────────────────────────────
     this._buildHintShown     = false;
     this._buildHintDismissed = false;
@@ -375,6 +436,46 @@ class GameLoop {
   }
 
   stop() { this._stopRAF(); }
+
+  /** Start the tutorial (levels 1–3, no Nemesis). Calls onComplete() after level 3. */
+  startTutorial(onComplete) {
+    this._tutorialCallback = onComplete;
+    this._expeditionMode   = false;
+    this.start();
+  }
+
+  /**
+   * Start an expedition run.
+   * @param {object} zone        – expedition zone object from EXPEDITION_ZONES
+   * @param {function} onComplete – callback(totalExpeditionScore) when all labs done
+   */
+  startExpedition(zone, onComplete) {
+    this._expeditionMode   = true;
+    this._expeditionZone   = zone;
+    this._expeditionRunIdx = 0;
+    this._expeditionScore  = 0;
+    this._onExpeditionDone = onComplete;
+
+    const headerH = (document.getElementById('header')?.offsetHeight ?? 60) + 10;
+    this.canvas.width  = Math.min(window.innerWidth - 10, 1600);
+    this.canvas.height = Math.max(420, window.innerHeight - headerH - 10);
+    this.viewportW = this.canvas.width;
+    this.viewportH = this.canvas.height;
+
+    this.nextOffsetQ     = 0;
+    this.prevMaxQ        = undefined;
+    this.cameraZoom      = 1.0;
+    this.archivedIslands = [];
+    this.archiveBoundaryWorldX = -Infinity;
+    this._runState        = 'prerun';
+    this._levelCompleting = false;
+
+    this.progression  = new ExpeditionSession(zone, 0);
+    this.activeIsland = this._generateNextIsland();
+    this._showPreRun();
+    this._updateHUD();
+    this._startRAF();
+  }
 
   setShowMovementAssist(val) { this.showMovementAssist = val; }
 
@@ -721,7 +822,17 @@ class GameLoop {
     const overlay = document.getElementById('pre-run-overlay');
     if (!overlay) return;
 
-    document.getElementById('pre-level-num').textContent  = pm.level;
+    // Title: "Level X" for normal play, "Lab X / N" for expeditions
+    const titleEl = document.getElementById('pre-run-title');
+    if (titleEl) {
+      if (this._expeditionMode) {
+        titleEl.innerHTML = `Lab <span id="pre-level-num">${this._expeditionRunIdx + 1} / ${this._expeditionZone.mazeCount}</span>`;
+      } else {
+        titleEl.innerHTML = `Level <span id="pre-level-num">${pm.level}</span>`;
+      }
+    } else {
+      document.getElementById('pre-level-num').textContent = pm.level;
+    }
     document.getElementById('pre-difficulty').textContent = this._levelDifficultyScore;
 
     // New mechanic banner
@@ -747,6 +858,19 @@ class GameLoop {
     const srEl = document.getElementById('pre-sight-range');
     if (srEl) srEl.textContent = cfg.sightRange >= 4 ? 'Full' : cfg.sightRange;
 
+    // Expedition progress row
+    const expRowEl = document.getElementById('exp-progress-row');
+    const expValEl = document.getElementById('exp-progress-val');
+    if (expRowEl) {
+      if (this._expeditionMode) {
+        const labsAfter = this._expeditionZone.mazeCount - (this._expeditionRunIdx + 1);
+        expRowEl.style.display = '';
+        if (expValEl) expValEl.textContent = labsAfter === 0 ? 'Final labyrinth!' : `${labsAfter} more after this`;
+      } else {
+        expRowEl.style.display = 'none';
+      }
+    }
+
     // Reset peek options to defaults
     const defaultPeek = document.querySelector('input[name="peek-duration"][value="2"]');
     if (defaultPeek) defaultPeek.checked = true;
@@ -767,6 +891,28 @@ class GameLoop {
     const defaultGen = document.querySelector('input[name="generosity"][value="4"]');
     if (defaultGen) defaultGen.checked = true;
     pm.generosityFactor = 4.0;
+
+    // ── Lore injection ────────────────────────────────────────────────────────
+    const loreEl = document.getElementById('pre-run-lore');
+    if (loreEl) {
+      if (!this._expeditionMode && pm.level === 1) {
+        // Tutorial start — motivation for entering the Panoptikum
+        loreEl.style.display = '';
+        loreEl.textContent = "The rumors speak of a legendary 'Panoptikum' hidden just beneath the upper crust. A quirky, marvelous museum, though long abandoned and stripped of its artifacts. If I can navigate these shifting ruins, it would make the perfect laboratory and sanctuary for my research.";
+      } else if (pm.level >= 4) {
+        if (this._expeditionZone?.id === 'z01' && this._expeditionRunIdx === 0) {
+          // First real expedition from the hub — first labyrinth only
+          loreEl.style.display = '';
+          loreEl.textContent = "The Panoptikum is secured, but its display cases are tragically bare. It is time to begin the real work. I will start with a short expedition into a promising, nearby sector of the crushed upper levels. Let's see what history the earth has swallowed here.";
+        } else {
+          // All subsequent expedition labs — random journal entry
+          loreEl.style.display = '';
+          loreEl.textContent = JOURNAL_ENTRIES[Math.floor(Math.random() * JOURNAL_ENTRIES.length)];
+        }
+      } else {
+        loreEl.style.display = 'none';
+      }
+    }
 
     overlay.style.display = 'flex';
     this._runState = 'prerun';
@@ -878,37 +1024,93 @@ class GameLoop {
     } else if (won) {
       const timeBonus = Math.floor(this._attackTimer * 10);
       runScore = this._levelDifficultyScore + timeBonus;
-      this._setPostRunContent({
-        title: `Level ${pm.level} Complete`,
-        won:   true,
-        rows: [
-          ['Difficulty Score',  this._levelDifficultyScore],
-          ['Time Bonus',        `+${timeBonus}`],
-          ['Run Score',         runScore],
-        ],
-      });
+
+      if (this._expeditionMode) {
+        const labsDone  = this._expeditionRunIdx + 1;
+        const labsTotal = this._expeditionZone.mazeCount;
+        const labsAfter = labsTotal - labsDone;
+        const progressRow = labsAfter > 0
+          ? ['Remaining', `${labsAfter} more ${labsAfter === 1 ? 'labyrinth' : 'labyrinths'}`]
+          : ['Remaining', 'All labyrinths cleared ✓'];
+        this._setPostRunContent({
+          title: labsAfter === 0 ? 'Expedition Complete!' : `Lab ${labsDone} / ${labsTotal} Complete`,
+          won:   true,
+          rows: [
+            ['Difficulty Score', this._levelDifficultyScore],
+            ['Time Bonus',       `+${timeBonus}`],
+            ['Lab Score',        runScore],
+            progressRow,
+          ],
+        });
+      } else {
+        this._setPostRunContent({
+          title: `Level ${pm.level} Complete`,
+          won:   true,
+          rows: [
+            ['Difficulty Score',  this._levelDifficultyScore],
+            ['Time Bonus',        `+${timeBonus}`],
+            ['Run Score',         runScore],
+          ],
+        });
+      }
     } else {
+      const loseTitle = this._expeditionMode
+        ? `Lab ${this._expeditionRunIdx + 1}/${this._expeditionZone.mazeCount} — Nemesis!`
+        : `Level ${pm.level} — Nemesis!`;
       this._setPostRunContent({
-        title: `Level ${pm.level} — Nemesis!`,
+        title: loseTitle,
         won:   false,
         rows: [['The Nemesis reached the goal.', ''], ['Run Score', 0]],
       });
     }
 
     if (won) {
-      this.totalScore += runScore;
-      localStorage.setItem('hexmaze_totalscore', String(this.totalScore));
+      if (this._expeditionMode) {
+        this._expeditionScore += runScore;
+      } else {
+        this.totalScore += runScore;
+        localStorage.setItem('hexmaze_totalscore', String(this.totalScore));
+      }
     }
 
+    // "Next Level" button label
+    const btnNext = document.getElementById('btn-next-level');
+    if (btnNext) {
+      if (this._expeditionMode && won) {
+        const isLast = this._expeditionRunIdx === this._expeditionZone.mazeCount - 1;
+        btnNext.textContent = isLast ? 'Complete Expedition →' : 'Next Labyrinth →';
+      } else {
+        btnNext.textContent = 'Next Level →';
+      }
+    }
+
+    // "Total Score" label — shows expedition running score during expedition
+    const scoreLabelEl = document.getElementById('post-score-label');
+    if (scoreLabelEl) {
+      scoreLabelEl.textContent = this._expeditionMode ? 'Expedition Score' : 'Total Score';
+    }
+
+    const scoreDisplay = this._expeditionMode ? this._expeditionScore : this.totalScore;
     const overlay = document.getElementById('post-run-overlay');
     if (overlay) {
-      document.getElementById('post-total-score').textContent = this.totalScore;
+      document.getElementById('post-total-score').textContent = scoreDisplay;
       overlay.style.display = 'flex';
     }
 
     this._runState = 'postrun';
     this._closeBuildUI();
     this._updateHUD();
+
+    // ── Post-run lore injection ───────────────────────────────────────────────
+    const postLoreEl = document.getElementById('post-run-lore');
+    if (postLoreEl) {
+      if (!this._expeditionMode && pm.level === 3 && won) {
+        postLoreEl.style.display = '';
+        postLoreEl.textContent = "I have found it! The Panoptikum is mine. The shelves are bare, and dust coats the display cases, but its eccentric charm is undeniable. From this safe haven, I shall launch expeditions deeper into the abyss. The city's true history is not written in books, but buried in these depths. For science and preservation, I must map what lies below.";
+      } else {
+        postLoreEl.style.display = 'none';
+      }
+    }
   }
 
   _setPostRunContent({ title, won, rows }) {
@@ -1144,6 +1346,58 @@ class GameLoop {
 
   _advanceToNextLevel() {
     const overlay = document.getElementById('post-run-overlay');
+
+    // ── Tutorial end: level 3 complete → fire callback ────────────────────────
+    if (this._tutorialCallback && this.progression.level === 3) {
+      if (overlay) overlay.style.display = 'none';
+      this.stop();
+      const cb = this._tutorialCallback;
+      this._tutorialCallback = null;
+      cb();
+      return;
+    }
+
+    // ── Expedition: next lab or expedition complete ────────────────────────────
+    if (this._expeditionMode) {
+      this._expeditionRunIdx++;
+
+      if (this._expeditionRunIdx >= this._expeditionZone.mazeCount) {
+        // All labyrinths done
+        if (overlay) overlay.style.display = 'none';
+        this.stop();
+        const cb    = this._onExpeditionDone;
+        const score = this._expeditionScore;
+        this._expeditionMode   = false;
+        this._expeditionZone   = null;
+        this._onExpeditionDone = null;
+        if (cb) cb(score);
+        return;
+      }
+
+      // Advance to next labyrinth in expedition
+      if (overlay) overlay.style.display = 'none';
+      this._closeBuildUI();
+      this._archiveActiveIsland();
+
+      const archivedGrid = this.archivedIslands[this.archivedIslands.length - 1].grid;
+      this.nextOffsetQ   = archivedGrid.goalCell.q + 1;
+      const { x: gx }   = HexMath.toPixel(archivedGrid.goalCell.q, archivedGrid.goalCell.r, this.cellSize);
+      this.archiveBoundaryWorldX = gx + this.cellSize * 0.6;
+
+      const prevPeek = this.progression.peekDuration;
+      const prevGen  = this.progression.generosityFactor;
+      this.progression = new ExpeditionSession(this._expeditionZone, this._expeditionRunIdx);
+      this.progression.peekDuration     = prevPeek;
+      this.progression.generosityFactor = prevGen;
+
+      this.activeIsland     = this._generateNextIsland();
+      this._levelCompleting = false;
+      this._showPreRun();
+      this._updateHUD();
+      return;
+    }
+
+    // ── Normal progression (analysis / free-play mode) ────────────────────────
     if (overlay) overlay.style.display = 'none';
     this._closeBuildUI();
 
@@ -1331,9 +1585,22 @@ class GameLoop {
       }
       if (this.progression.level >= 4) {
         this._nemesis.update(dt, grid, this.cellSize);
-        if (this._nemesis.reachedGoal && !this._levelCompleting) {
-          this._levelCompleting = true;
-          setTimeout(() => this._showPostRun(false), 400);
+        if (!this._levelCompleting) {
+          // Nemesis reached the goal
+          if (this._nemesis.reachedGoal) {
+            this._levelCompleting = true;
+            setTimeout(() => this._showPostRun(false), 400);
+          }
+          // Nemesis caught the player (proximity)
+          else if (this._nemesis.active) {
+            const dx = this._nemesis.worldX - this.player.worldX;
+            const dy = this._nemesis.worldY - this.player.worldY;
+            const catchR = this._nemesis.radius + this.player.radius;
+            if (dx * dx + dy * dy < catchR * catchR) {
+              this._levelCompleting = true;
+              setTimeout(() => this._showPostRun(false), 250);
+            }
+          }
         }
       }
     }
@@ -1639,7 +1906,8 @@ class GameLoop {
     if (el('hud-level'))      el('hud-level').textContent      = pm.level;
     if (el('hud-difficulty')) el('hud-difficulty').textContent = this._levelDifficultyScore;
     if (el('hud-sight'))      el('hud-sight').textContent      = this.sightRange >= 4 ? '∞' : this.sightRange;
-    if (el('hud-total-score')) el('hud-total-score').textContent = this.totalScore;
+    const displayScore = this._expeditionMode ? this._expeditionScore : this.totalScore;
+    if (el('hud-total-score')) el('hud-total-score').textContent = displayScore;
 
     // Currency
     const cRow = el('hud-currency-row');
