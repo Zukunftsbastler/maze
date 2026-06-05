@@ -384,6 +384,7 @@ class GameLoop {
     this._expeditionRunIdx  = 0;      // current lab index (0-based)
     this._expeditionScore   = 0;      // running score for the active expedition
     this._onExpeditionDone  = null;   // callback(totalScore) on expedition complete
+    this._onExpeditionAbort = null;   // callback(penaltyScore) on abort
 
     // ── Build hint (contextual tutorial) ──────────────────────────────────────
     this._buildHintShown     = false;
@@ -437,6 +438,27 @@ class GameLoop {
 
   stop() { this._stopRAF(); }
 
+  /** Abort the active expedition: keep 10% of score, clear artifacts, return penalty. */
+  _abortExpedition() {
+    if (!this._expeditionMode) return;
+    const penalty = Math.floor(this._expeditionScore * 0.10);
+    const cb = this._onExpeditionAbort;
+
+    // Close any open overlay
+    ['pre-run-overlay', 'post-run-overlay'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.style.display = 'none';
+    });
+
+    this._expeditionMode    = false;
+    this._expeditionZone    = null;
+    this._onExpeditionDone  = null;
+    this._onExpeditionAbort = null;
+    this.stop();
+
+    if (cb) cb(penalty);
+  }
+
   /** Start the tutorial (levels 1–3, no Nemesis). Calls onComplete() after level 3. */
   startTutorial(onComplete) {
     this._tutorialCallback = onComplete;
@@ -449,12 +471,13 @@ class GameLoop {
    * @param {object} zone        – expedition zone object from EXPEDITION_ZONES
    * @param {function} onComplete – callback(totalExpeditionScore) when all labs done
    */
-  startExpedition(zone, onComplete) {
-    this._expeditionMode   = true;
-    this._expeditionZone   = zone;
-    this._expeditionRunIdx = 0;
-    this._expeditionScore  = 0;
-    this._onExpeditionDone = onComplete;
+  startExpedition(zone, onComplete, onAbort) {
+    this._expeditionMode    = true;
+    this._expeditionZone    = zone;
+    this._expeditionRunIdx  = 0;
+    this._expeditionScore   = 0;
+    this._onExpeditionDone  = onComplete;
+    this._onExpeditionAbort = onAbort || null;
 
     const headerH = (document.getElementById('header')?.offsetHeight ?? 60) + 10;
     this.canvas.width  = Math.min(window.innerWidth - 10, 1600);
@@ -647,6 +670,11 @@ class GameLoop {
         this._refreshPreRunScore();
       });
     });
+
+    // Abort expedition buttons (pre-run + post-run)
+    const abortHandler = () => { if (this._expeditionMode) this._abortExpedition(); };
+    document.getElementById('btn-abort-pre')?.addEventListener('click', abortHandler);
+    document.getElementById('btn-abort-post')?.addEventListener('click', abortHandler);
 
     // Build panel: place blockade
     const btnBlockade = document.getElementById('btn-place-blockade');
@@ -892,6 +920,10 @@ class GameLoop {
     if (defaultGen) defaultGen.checked = true;
     pm.generosityFactor = 4.0;
 
+    // Abort button: only visible during expedition runs
+    const abortPreBtn = document.getElementById('btn-abort-pre');
+    if (abortPreBtn) abortPreBtn.style.display = this._expeditionMode ? '' : 'none';
+
     // ── Lore injection ────────────────────────────────────────────────────────
     const loreEl = document.getElementById('pre-run-lore');
     if (loreEl) {
@@ -1100,6 +1132,14 @@ class GameLoop {
     this._runState = 'postrun';
     this._closeBuildUI();
     this._updateHUD();
+
+    // Abort button on post-run: show between expedition labs (not on last lab, not on loss)
+    const abortPostBtn = document.getElementById('btn-abort-post');
+    if (abortPostBtn) {
+      const showAbort = this._expeditionMode && won &&
+        this._expeditionRunIdx < (this._expeditionZone?.mazeCount ?? 0) - 1;
+      abortPostBtn.style.display = showAbort ? '' : 'none';
+    }
 
     // ── Post-run lore injection ───────────────────────────────────────────────
     const postLoreEl = document.getElementById('post-run-lore');

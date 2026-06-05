@@ -122,6 +122,18 @@
     .exp-val.exp-gold { color: #ffd23f; }
     .exp-val.exp-italic { color: #7a8899; font-size: 0.78rem; font-weight: normal; font-style: italic; }
     .exp-val.exp-cyan   { color: #00ff88; }
+    #exp-zone-status {
+      font-size: 0.70rem; font-style: italic; letter-spacing: 0.04em;
+      padding: 5px 10px; border-radius: 5px; line-height: 1.4;
+    }
+    #exp-zone-status.status-aborted  {
+      color: #ff8844; background: rgba(255,136,68,0.10);
+      border: 1px solid rgba(255,136,68,0.35);
+    }
+    #exp-zone-status.status-completed {
+      color: #00ff88; background: rgba(0,255,136,0.08);
+      border: 1px solid rgba(0,255,136,0.30);
+    }
     #btn-start-expedition { width: 100%; margin-top: 4px; }
     #btn-start-expedition:disabled {
       opacity: 0.35 !important; cursor: not-allowed; pointer-events: none;
@@ -336,6 +348,30 @@ for (const z of EXPEDITION_ZONES) {
   z.difficultyScore = _difficultyScore(z);
 }
 
+// ── Rectangular zone positions on Level01.png (2816 × 1536) ──────────────────
+// Zones are laid out in a 3-row visual grid matching the image content.
+// Each entry: { x, y, w, h } in image-pixel coordinates.
+// These are placeholder rectangles — swap for precise values after visual inspection.
+//
+// Row 1 (top, y 0–512):   z01 z02 z03 z11
+// Row 2 (middle, y 512–1024): z07 z08 z09 z10 z12
+// Row 3 (bottom, y 1024–1536): z04 z05 z06
+
+const ZONE_RECTS = {
+  z01:  { x: 0,    y: 0,    w: 704, h: 512 },   // Gargoyle's Overlook   — top-left statue
+  z02:  { x: 704,  y: 0,    w: 704, h: 512 },   // The Ruined Archive     — bookshelves
+  z03:  { x: 1408, y: 0,    w: 704, h: 512 },   // The Splintered Niche   — broken beam
+  z11:  { x: 2112, y: 0,    w: 704, h: 512 },   // The Forgotten Wing     — far top-right
+  z07:  { x: 0,    y: 512,  w: 560, h: 512 },   // The Dusty Anteroom
+  z08:  { x: 560,  y: 512,  w: 560, h: 512 },   // The Collapsed Vault
+  z09:  { x: 1120, y: 512,  w: 560, h: 512 },   // The Amber Passage
+  z10:  { x: 1680, y: 512,  w: 560, h: 512 },   // The Crumbling Study
+  z12:  { x: 2240, y: 512,  w: 576, h: 512 },   // The Flooded Cellars   — far middle-right
+  z04:  { x: 0,    y: 1024, w: 938, h: 512 },   // Spice Merchant's Cellar — bottom-left barrels
+  z05:  { x: 938,  y: 1024, w: 940, h: 512 },   // The Green Drain         — bottom-center sewer
+  z06:  { x: 1878, y: 1024, w: 938, h: 512 },   // The Rusted Gate         — bottom-right gate
+};
+
 // ── ExpeditionMaps ─────────────────────────────────────────────────────────────
 
 class ExpeditionMaps {
@@ -409,10 +445,35 @@ class ExpeditionMaps {
     this._updateScoreDisplays();
   }
 
+  /**
+   * Called when the player aborts an expedition mid-run.
+   * Marks zone aborted (unless already completed), adds penalty score.
+   */
+  onExpeditionAborted(zoneId, penaltyScore) {
+    const zone = EXPEDITION_ZONES.find(z => z.id === zoneId);
+    if (!zone) return;
+
+    // Don't downgrade a completed zone to aborted
+    if (zone.status !== 'completed') {
+      zone.status = 'aborted';
+      if (!this._state.abortedIds) this._state.abortedIds = [];
+      if (!this._state.abortedIds.includes(zoneId)) {
+        this._state.abortedIds.push(zoneId);
+      }
+      // Remove from available (it remains accessible via aborted status)
+      this._state.availableIds = (this._state.availableIds || []).filter(id => id !== zoneId);
+    }
+
+    this._state.globalScore = (this._state.globalScore || 0) + penaltyScore;
+    this._saveState();
+    this._rebuildMicroSVG();
+    this._updateScoreDisplays();
+  }
+
   // ── State persistence ─────────────────────────────────────────────────────────
 
   static STATE_KEY     = 'hexmaze_expedition_state';
-  static STATE_VERSION = '3'; // increment when zone IDs or data change
+  static STATE_VERSION = '4'; // incremented: added aborted state + rectangular zone rects
 
   _loadState() {
     try {
@@ -426,6 +487,7 @@ class ExpeditionMaps {
     return {
       version:      ExpeditionMaps.STATE_VERSION,
       completedIds: [],
+      abortedIds:   [],
       availableIds: ['z01'],
       globalScore:  0,
     };
@@ -440,9 +502,11 @@ class ExpeditionMaps {
 
   /** Apply loaded state onto EXPEDITION_ZONES statuses. */
   _applyState() {
+    const { completedIds = [], abortedIds = [], availableIds = [] } = this._state;
     for (const z of EXPEDITION_ZONES) {
-      if (this._state.completedIds.includes(z.id)) { z.status = 'completed'; continue; }
-      if (this._state.availableIds.includes(z.id)) { z.status = 'available'; continue; }
+      if (completedIds.includes(z.id)) { z.status = 'completed'; continue; }
+      if (abortedIds.includes(z.id))   { z.status = 'aborted';   continue; }
+      if (availableIds.includes(z.id)) { z.status = 'available'; continue; }
       z.status = 'locked';
     }
   }
@@ -513,6 +577,7 @@ class ExpeditionMaps {
                 <span class="exp-key">Expected Artifact</span>
                 <span class="exp-val exp-italic" id="exp-artifact-val">—</span>
               </div>
+              <div id="exp-zone-status" style="display:none"></div>
               <button class="primary accent" id="btn-start-expedition" disabled>Start Expedition</button>
             </div>
           </div>
@@ -711,82 +776,141 @@ class ExpeditionMaps {
     if (!svg) return;
     const IW = 2816, IH = 1536;
 
-    const completedPolys = EXPEDITION_ZONES
-      .filter(z => z.status === 'completed')
-      .map(z => `<polygon points="${z.points}"/>`)
-      .join('') || '<polygon points="0,0"/>';
+    const revealedZones  = EXPEDITION_ZONES.filter(z => z.status === 'completed' || z.status === 'aborted');
+    const completedZones = EXPEDITION_ZONES.filter(z => z.status === 'completed');
+
+    // Per-zone torn-paper displacement filters (unique seed per zone)
+    const tornFilters = EXPEDITION_ZONES.map((z, i) =>
+      `<filter id="torn-${z.id}" x="-8%" y="-8%" width="116%" height="116%">
+         <feTurbulence type="fractalNoise" baseFrequency="0.038 0.028"
+                       numOctaves="4" seed="${(i + 1) * 7}" result="noise"/>
+         <feDisplacementMap in="SourceGraphic" in2="noise" scale="26"
+                            xChannelSelector="R" yChannelSelector="G"/>
+       </filter>`
+    ).join('');
+
+    // Map-hole mask: white everywhere → black torn holes where zones are revealed
+    const mapHoleRects = revealedZones.map(z => {
+      const r = ZONE_RECTS[z.id]; if (!r) return '';
+      return `<rect x="${r.x}" y="${r.y}" width="${r.w}" height="${r.h}"
+                    fill="black" filter="url(#torn-${z.id})"/>`;
+    }).join('');
+
+    // Color-reveal mask: black everywhere → white torn windows for completed zones
+    const colorRevealRects = completedZones.map(z => {
+      const r = ZONE_RECTS[z.id]; if (!r) return '';
+      return `<rect x="${r.x}" y="${r.y}" width="${r.w}" height="${r.h}"
+                    fill="white" filter="url(#torn-${z.id})"/>`;
+    }).join('');
 
     svg.innerHTML = `<defs>
+      ${tornFilters}
       <filter id="mm-gray" color-interpolation-filters="sRGB">
         <feColorMatrix type="saturate" values="0"/>
       </filter>
-      <filter id="mm-glow-gold" x="-20%" y="-20%" width="140%" height="140%">
-        <feGaussianBlur stdDeviation="9" result="b"/>
+      <filter id="mm-glow-avail" x="-5%" y="-5%" width="110%" height="110%">
+        <feGaussianBlur stdDeviation="7" result="b"/>
         <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
       </filter>
-      <filter id="mm-glow-cyan" x="-20%" y="-20%" width="140%" height="140%">
-        <feGaussianBlur stdDeviation="9" result="b"/>
+      <filter id="mm-glow-done" x="-5%" y="-5%" width="110%" height="110%">
+        <feGaussianBlur stdDeviation="7" result="b"/>
         <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
       </filter>
-      <clipPath id="mm-color-clip">${completedPolys}</clipPath>
+      <filter id="mm-glow-abort" x="-5%" y="-5%" width="110%" height="110%">
+        <feGaussianBlur stdDeviation="7" result="b"/>
+        <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+      </filter>
+      <mask id="map-hole-mask" maskContentUnits="userSpaceOnUse">
+        <rect x="0" y="0" width="${IW}" height="${IH}" fill="white"/>
+        ${mapHoleRects || ''}
+      </mask>
+      <mask id="color-reveal-mask" maskContentUnits="userSpaceOnUse">
+        <rect x="0" y="0" width="${IW}" height="${IH}" fill="black"/>
+        ${colorRevealRects || ''}
+      </mask>
     </defs>`;
 
+    // ── Layer 1: Grayscale photo (base — visible for aborted zones) ──────────
     svg.appendChild(svgEl('image', {
       href: 'ASSETS/LEVEL_MAPS/Level01.png',
-      x: 0, y: 0, width: IW, height: IH, filter: 'url(#mm-gray)',
+      x: 0, y: 0, width: IW, height: IH,
+      filter: 'url(#mm-gray)',
     }));
-    const colorImg = svgEl('image', {
-      href: 'ASSETS/LEVEL_MAPS/Level01.png',
+
+    // ── Layer 2: Full-color photo (masked to completed zones only) ───────────
+    if (completedZones.length > 0) {
+      const colorImg = svgEl('image', {
+        href: 'ASSETS/LEVEL_MAPS/Level01.png',
+        x: 0, y: 0, width: IW, height: IH,
+      });
+      colorImg.setAttribute('mask', 'url(#color-reveal-mask)');
+      svg.appendChild(colorImg);
+    }
+
+    // ── Layer 3: Schematic map overlay (torn holes for revealed zones) ────────
+    const mapImg = svgEl('image', {
+      href: 'ASSETS/LEVEL_MAPS/Level01_map.png',
       x: 0, y: 0, width: IW, height: IH,
     });
-    colorImg.setAttribute('clip-path', 'url(#mm-color-clip)');
-    svg.appendChild(colorImg);
+    if (revealedZones.length > 0) mapImg.setAttribute('mask', 'url(#map-hole-mask)');
+    svg.appendChild(mapImg);
 
+    // ── Layers 4–6: Overlays, highlights, hit areas ────────────────────────
     for (const zone of EXPEDITION_ZONES) {
-      const g    = document.createElementNS(SVG_NS, 'g');
-      const bbox = this._bbox(zone.points);
+      const r = ZONE_RECTS[zone.id];
+      if (!r) continue;
+      const g  = document.createElementNS(SVG_NS, 'g');
+      const cx = r.x + r.w / 2;
+      const cy = r.y + r.h / 2;
 
       if (zone.status === 'locked') {
-        g.appendChild(svgEl('polygon', { points: zone.points, fill: 'rgba(0,0,0,0.82)' }));
+        // Dark overlay on top of the map layer
+        g.appendChild(svgEl('rect', {
+          x: r.x, y: r.y, width: r.w, height: r.h, fill: 'rgba(0,0,0,0.82)',
+        }));
         const dash = svgEl('text', {
-          x: bbox.cx, y: bbox.cy,
+          x: cx, y: cy,
           'text-anchor': 'middle', 'dominant-baseline': 'middle',
-          'font-family': 'Courier New, monospace', 'font-size': 26,
-          fill: 'rgba(60,85,105,0.65)',
+          'font-family': 'Courier New, monospace', 'font-size': 28,
+          fill: 'rgba(60,85,105,0.60)',
         });
         dash.textContent = '—';
         g.appendChild(dash);
       } else {
-        const isComp   = zone.status === 'completed';
-        const glowCol  = isComp ? '#00ff88' : '#ffd23f';
-        const glowFilt = isComp ? 'url(#mm-glow-cyan)' : 'url(#mm-glow-gold)';
+        const isComp  = zone.status === 'completed';
+        const isAbort = zone.status === 'aborted';
+        const glowCol  = isComp ? '#00ff88' : isAbort ? '#ff8844' : '#ffd23f';
+        const glowFilt = isComp ? 'url(#mm-glow-done)'
+                       : isAbort ? 'url(#mm-glow-abort)' : 'url(#mm-glow-avail)';
 
-        const hl = svgEl('polygon', {
-          points: zone.points, fill: 'none',
-          stroke: glowCol, 'stroke-width': 5, filter: glowFilt,
+        // Hover glow border (rectangular, sits on top)
+        const hl = svgEl('rect', {
+          x: r.x, y: r.y, width: r.w, height: r.h,
+          fill: 'none', stroke: glowCol, 'stroke-width': 7,
+          filter: glowFilt,
         });
         hl.style.opacity = '0'; hl.style.transition = 'opacity 0.18s';
         hl.style.pointerEvents = 'none';
         g.appendChild(hl);
 
-        // Zone name label (fades in on hover)
+        // Zone name (fades in on hover)
         const words = zone.name.split(' ');
         const mid   = Math.ceil(words.length / 2);
         const nameText = svgEl('text', {
-          x: bbox.cx, y: bbox.cy,
+          x: cx, y: cy,
           'text-anchor': 'middle', 'dominant-baseline': 'middle',
           'font-family': 'Courier New, monospace',
-          'font-size': 19, 'font-weight': 'bold',
+          'font-size': 22, 'font-weight': 'bold',
           fill: 'rgba(0,0,0,0)',
         });
-        nameText.style.transition = 'fill 0.18s';
+        nameText.style.transition    = 'fill 0.18s';
         nameText.style.pointerEvents = 'none';
         if (words.length > 2) {
           const ts1 = document.createElementNS(SVG_NS, 'tspan');
-          ts1.setAttribute('x', String(bbox.cx)); ts1.setAttribute('dy', '-11');
+          ts1.setAttribute('x', String(cx)); ts1.setAttribute('dy', '-13');
           ts1.textContent = words.slice(0, mid).join(' ');
           const ts2 = document.createElementNS(SVG_NS, 'tspan');
-          ts2.setAttribute('x', String(bbox.cx)); ts2.setAttribute('dy', '22');
+          ts2.setAttribute('x', String(cx)); ts2.setAttribute('dy', '28');
           ts2.textContent = words.slice(mid).join(' ');
           nameText.appendChild(ts1); nameText.appendChild(ts2);
         } else {
@@ -795,12 +919,16 @@ class ExpeditionMaps {
         g.appendChild(nameText);
 
         // Transparent hit area
-        const hit = svgEl('polygon', { points: zone.points, fill: 'rgba(0,0,0,0)' });
+        const hit = svgEl('rect', {
+          x: r.x, y: r.y, width: r.w, height: r.h, fill: 'rgba(0,0,0,0)',
+        });
         hit.setAttribute('pointer-events', 'all');
         hit.setAttribute('tabindex', '0');
         hit.style.cursor = 'pointer';
 
-        const nameColor = isComp ? 'rgba(0,255,136,0.92)' : 'rgba(255,210,63,0.92)';
+        const nameColor = isComp  ? 'rgba(0,255,136,0.95)'
+                        : isAbort ? 'rgba(255,136,68,0.95)'
+                        : 'rgba(255,210,63,0.95)';
 
         hit.addEventListener('mouseenter', () => {
           hl.style.opacity = '1';
@@ -816,21 +944,12 @@ class ExpeditionMaps {
             document.getElementById('exp-panel-placeholder').style.display = '';
           }
         });
-        hit.addEventListener('focus', () => {
-          hl.style.opacity = '1'; this._updateExpPanel(zone, false);
-        });
-        hit.addEventListener('blur', () => {
-          hl.style.opacity = '0';
-        });
-        hit.addEventListener('click', () => {
-          this._activeZone = zone;
-          this._updateExpPanel(zone, true);
-        });
+        hit.addEventListener('focus',  () => { hl.style.opacity = '1'; this._updateExpPanel(zone, false); });
+        hit.addEventListener('blur',   () => { hl.style.opacity = '0'; });
+        hit.addEventListener('click',  () => { this._activeZone = zone; this._updateExpPanel(zone, true); });
         hit.addEventListener('keydown', e => {
           if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault();
-            this._activeZone = zone;
-            this._updateExpPanel(zone, true);
+            e.preventDefault(); this._activeZone = zone; this._updateExpPanel(zone, true);
           }
         });
         g.appendChild(hit);
@@ -865,8 +984,27 @@ class ExpeditionMaps {
     document.getElementById('exp-difficulty-val').textContent   = zone.difficultyScore;
     document.getElementById('exp-artifact-val').textContent     = zone.expectedArtifact;
 
+    // Status badge (aborted / completed)
+    const statusEl = document.getElementById('exp-zone-status');
+    if (statusEl) {
+      statusEl.className = '';
+      if (zone.status === 'aborted') {
+        statusEl.style.display = '';
+        statusEl.classList.add('status-aborted');
+        statusEl.textContent = '⚠ Previously aborted — retry available';
+      } else if (zone.status === 'completed') {
+        statusEl.style.display = '';
+        statusEl.classList.add('status-completed');
+        statusEl.textContent = '✓ Completed — replay available';
+      } else {
+        statusEl.style.display = 'none';
+      }
+    }
+
     const btn      = document.getElementById('btn-start-expedition');
-    const canStart = activate && (zone.status === 'available' || zone.status === 'completed');
+    // Aborted zones are retryable, just like available and completed
+    const canStart = activate &&
+      (zone.status === 'available' || zone.status === 'completed' || zone.status === 'aborted');
     btn.disabled      = !canStart;
     btn.style.opacity = canStart ? '1' : '0.38';
     if (activate) this._activeZone = zone;

@@ -303,6 +303,20 @@
     }
     .hud-shake { animation: hud-shake 0.45s ease-out; }
 
+    /* ── Abort Expedition button ── */
+    .btn-abort {
+      background: transparent; border: 1.5px solid rgba(255,136,68,0.45);
+      color: rgba(255,136,68,0.65); border-radius: 6px;
+      padding: 8px 18px; font-family: inherit; font-size: 0.80rem;
+      letter-spacing: 0.08em; cursor: pointer; text-transform: uppercase;
+      transition: background 0.15s, color 0.15s, border-color 0.15s;
+      white-space: nowrap;
+    }
+    .btn-abort:hover {
+      background: rgba(255,136,68,0.12); color: #ff8844;
+      border-color: #ff8844;
+    }
+
     /* ── Lore / narrative flavor text ── */
     .lore-text {
       font-family: 'Georgia', 'Times New Roman', serif;
@@ -460,6 +474,7 @@
 
       <!-- CTA — always visible at the top -->
       <button class="primary" id="btn-start-run">Start Run</button>
+      <button class="btn-abort" id="btn-abort-pre" style="display:none">✕ Abort Expedition</button>
 
       <!-- Scrollable body -->
       <div class="overlay-body">
@@ -554,6 +569,7 @@
       <!-- CTAs — always visible at the top -->
       <button class="primary accent" id="btn-next-level">Next Level →</button>
       <button class="primary" id="btn-retry" style="display:none; border-color:#ff4466; color:#ff4466">↺ Retry Level</button>
+      <button class="btn-abort" id="btn-abort-post" style="display:none">✕ Abort Expedition</button>
 
       <!-- Scrollable body -->
       <div class="overlay-body">
@@ -604,6 +620,12 @@
         onComplete: score => {
           enterAnalysisMode();
           expeditionMaps.onExpeditionComplete(zone.id, score);
+          panoptikum.syncScore();
+          panoptikum.showViewB(startExpeditionFlow);
+        },
+        onAbort: penaltyScore => {
+          enterAnalysisMode();
+          expeditionMaps.onExpeditionAborted(zone.id, penaltyScore);
           panoptikum.syncScore();
           panoptikum.showViewB(startExpeditionFlow);
         },
@@ -662,7 +684,7 @@
       if (config.tutorial) {
         gameLoop.startTutorial(config.onComplete);
       } else if (config.expedition) {
-        gameLoop.startExpedition(config.expedition, config.onComplete);
+        gameLoop.startExpedition(config.expedition, config.onComplete, config.onAbort);
       } else {
         gameLoop.start();
       }
