@@ -1,3 +1,36 @@
+// ── Sprite cache (shared across all HexRenderer instances) ────────────────────
+const _SPRITE_CACHE = new Map();
+function _getSprite(src) {
+  if (!_SPRITE_CACHE.has(src)) {
+    const img = new Image();
+    img.src = src;
+    _SPRITE_CACHE.set(src, img);
+  }
+  return _SPRITE_CACHE.get(src);
+}
+
+// Pre-warm all currency + artifact sprites so they load before first use.
+function preloadGameSprites() {
+  const currencyPaths = [
+    'ASSETS/CURRENCY/single_gold_coin.png',
+    'ASSETS/CURRENCY/copper_coin.png',
+    'ASSETS/CURRENCY/small_coin_stack.png',
+    'ASSETS/CURRENCY/spilled_coin_pouch.png',
+    'ASSETS/CURRENCY/small_wooden_chest.png',
+    'ASSETS/CURRENCY/silver_goblet.png',
+    'ASSETS/CURRENCY/ornate_reliquary.png',
+    'ASSETS/CURRENCY/overflowing_chalice.png',
+    'ASSETS/CURRENCY/large_treasure_hoard.png',
+  ];
+  currencyPaths.forEach(_getSprite);
+
+  if (typeof ARTIFACT_CATALOG !== 'undefined') {
+    for (const def of Object.values(ARTIFACT_CATALOG)) {
+      if (def.sprite) _getSprite(def.sprite);
+    }
+  }
+}
+
 /**
  * HexRenderer — "shrunken tile + bridge" technique for instant maze readability.
  *
@@ -287,43 +320,80 @@ class HexRenderer {
       if (v !== 2) continue;
 
       if (cell.hasCurrency) {
-        const cr = ir * 1.4;
-        // Outer glow
-        ctx.beginPath(); ctx.arc(cx, cy, cr * 1.7, 0, Math.PI * 2);
-        ctx.fillStyle = 'rgba(255,210,63,0.18)'; ctx.fill();
-        // Coin body
-        ctx.beginPath(); ctx.arc(cx, cy, cr, 0, Math.PI * 2);
-        ctx.fillStyle   = '#ffd23f';
-        ctx.shadowColor = '#ffd23f'; ctx.shadowBlur = 18;
-        ctx.fill(); ctx.shadowBlur = 0;
-        // Highlight
-        ctx.beginPath(); ctx.arc(cx - cr * 0.25, cy - cr * 0.25, cr * 0.38, 0, Math.PI * 2);
-        ctx.fillStyle = 'rgba(255,255,220,0.45)'; ctx.fill();
-        // "G" label
-        ctx.fillStyle = '#06060f';
-        ctx.font = `bold ${Math.round(cr * 1.15)}px monospace`;
+        const spriteSrc = (typeof getCurrencySprite !== 'undefined')
+          ? getCurrencySprite(cell.currencyAmount)
+          : 'ASSETS/CURRENCY/single_gold_coin.png';
+        const img  = _getSprite(spriteSrc);
+        const isSingle = cell.currencyAmount === 1;
+        const half = size * (isSingle ? 0.40 : 0.50);
+
+        if (img.complete && img.naturalWidth > 0) {
+          // Subtle glow behind the sprite
+          ctx.save();
+          ctx.shadowColor = '#ffd23f';
+          ctx.shadowBlur  = isSingle ? 8 : 14;
+          ctx.drawImage(img, cx - half, cy - half, half * 2, half * 2);
+          ctx.shadowBlur = 0;
+          ctx.restore();
+        } else {
+          // Fallback: gold circle while image loads
+          const cr = half * 0.9;
+          ctx.beginPath(); ctx.arc(cx, cy, cr, 0, Math.PI * 2);
+          ctx.fillStyle = '#ffd23f'; ctx.shadowColor = '#ffd23f'; ctx.shadowBlur = 14;
+          ctx.fill(); ctx.shadowBlur = 0;
+        }
+
+        // Amount badge for stacks
+        if (cell.currencyAmount > 1) {
+          ctx.fillStyle = 'rgba(255,210,63,0.92)';
+          ctx.font = `bold ${Math.max(9, Math.round(size * 0.22))}px monospace`;
+          ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+          ctx.shadowColor = '#06060f'; ctx.shadowBlur = 4;
+          const label = cell.currencyAmount >= 100
+            ? `${Math.round(cell.currencyAmount / 100) * 100}`.slice(0, 4)
+            : String(cell.currencyAmount);
+          ctx.fillText(label, cx, cy + half * 0.55);
+          ctx.shadowBlur = 0;
+        }
+      } else if (cell.hasArtifact && cell.artifactTypeId) {
+        const def = (typeof ARTIFACT_CATALOG !== 'undefined')
+          ? ARTIFACT_CATALOG[cell.artifactTypeId] : null;
+        const spriteSrc = def?.sprite ?? null;
+        const half = size * 0.36;
+
+        // Pulsing aura
+        ctx.beginPath(); ctx.arc(cx, cy, half * 1.55, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(180,120,255,0.18)'; ctx.fill();
+
+        if (spriteSrc) {
+          const img = _getSprite(spriteSrc);
+          if (img.complete && img.naturalWidth > 0) {
+            ctx.save();
+            ctx.shadowColor = '#c880ff';
+            ctx.shadowBlur  = 18;
+            ctx.drawImage(img, cx - half, cy - half, half * 2, half * 2);
+            ctx.shadowBlur = 0;
+            ctx.restore();
+          } else {
+            // Fallback: purple diamond
+            ctx.beginPath();
+            ctx.moveTo(cx, cy - half * 1.3);
+            ctx.lineTo(cx + half, cy);
+            ctx.lineTo(cx, cy + half * 1.3);
+            ctx.lineTo(cx - half, cy);
+            ctx.closePath();
+            ctx.fillStyle = '#c880ff'; ctx.shadowColor = '#c880ff'; ctx.shadowBlur = 16;
+            ctx.fill(); ctx.shadowBlur = 0;
+          }
+        }
+
+        // Artifact indicator star (★)
+        ctx.fillStyle = 'rgba(255,200,80,0.90)';
+        ctx.font = `bold ${Math.max(8, Math.round(size * 0.20))}px monospace`;
         ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        ctx.fillText('G', cx, cy + cr * 0.06);
-      } else if (cell.hasUpgrade) {
-        const ur = ir * 1.35;
-        // Outer glow
-        ctx.beginPath(); ctx.arc(cx, cy, ur * 1.7, 0, Math.PI * 2);
-        ctx.fillStyle = 'rgba(74,158,255,0.18)'; ctx.fill();
-        // Diamond body
-        ctx.beginPath();
-        ctx.moveTo(cx,      cy - ur * 1.3);
-        ctx.lineTo(cx + ur, cy);
-        ctx.lineTo(cx,      cy + ur * 1.3);
-        ctx.lineTo(cx - ur, cy);
-        ctx.closePath();
-        ctx.fillStyle   = '#4a9eff';
-        ctx.shadowColor = '#4a9eff'; ctx.shadowBlur = 16;
-        ctx.fill(); ctx.shadowBlur = 0;
-        // "+" label
-        ctx.fillStyle = '#06060f';
-        ctx.font = `bold ${Math.round(ur * 1.2)}px monospace`;
-        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        ctx.fillText('+', cx, cy + ur * 0.06);
+        ctx.shadowColor = '#ffd23f'; ctx.shadowBlur = 6;
+        ctx.fillText('★', cx, cy - half * 1.0);
+        ctx.shadowBlur = 0;
       }
     }
 

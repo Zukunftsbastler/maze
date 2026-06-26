@@ -594,6 +594,7 @@
   <script src="hex-math.js"></script>
   <script src="random.js"></script>
   <script src="hex-cell.js"></script>
+  <script src="artifact-registry.js"></script>
   <script src="hex-grid-generator.js"></script>
   <script src="hex-renderer.js"></script>
   <script src="player.js"></script>
@@ -771,6 +772,7 @@
     });
 
     // ── Boot ───────────────────────────────────────────────────────────────────
+    preloadGameSprites();
     generateAnalysis();
 
     document.addEventListener('DOMContentLoaded', () => {

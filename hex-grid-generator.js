@@ -9,6 +9,11 @@ class HexGridGenerator {
     // q-coordinate of the previous island's rightmost cell (-1 = no tunnel)
     this.incomingQ     = options.incomingQ     ?? -1;
 
+    // Expedition loot context
+    this.isFinalLab        = options.isFinalLab        ?? false;
+    this.expeditionZoneId  = options.expeditionZoneId  ?? null;
+    this.expeditionRunIdx  = options.expeditionRunIdx  ?? 0;
+
     this.rng      = new Random(this.seed);
     this.cells    = new Map();
     this.startCell      = null;
@@ -34,7 +39,8 @@ class HexGridGenerator {
     this._openGoalExit();
     this._removeRandomWalls(this.radius);
     this._tagBuildableCells();
-    this._placeLoot();
+    this._placeGold();
+    this._placeArtifacts();
 
     return this;
   }
@@ -528,25 +534,125 @@ class HexGridGenerator {
     for (let i = 0; i < offCount; i++) this.cells.get(offCands[i]).isBuildable = true;
   }
 
-  // Populate dead-end cells (exactly 1 open passage) with currency and upgrades.
-  _placeLoot() {
+  // ── Gold placement: exponential scaling + uneven distribution ───────────────
+
+  _placeGold() {
+    const r = this.radius;
+    // Total gold budget scales exponentially with radius
+    const totalBudget = Math.round(Math.pow(r, 1.7) * 3.2);
+
+    const path    = this.findPath(this.startCell.key, this.goalCell.key);
+    const pathSet = new Set(path);
+
+    // Classify cells
     const deadEnds = [];
+    const offPath  = [];
+    const onPath   = [];
+
     for (const cell of this.cells.values()) {
       if (cell.isTunnel || cell.isStart || cell.isGoal) continue;
       const open = cell.walls.filter(w => !w).length;
-      if (open === 1) deadEnds.push(cell);
+      if (open === 1) {
+        deadEnds.push(cell);
+      } else if (pathSet.has(cell.key)) {
+        onPath.push(cell);
+      } else {
+        offPath.push(cell);
+      }
     }
-    this.rng.shuffle(deadEnds);
 
-    const coinMax = Math.ceil(deadEnds.length * 0.55);
-    const upMax   = Math.floor(deadEnds.length * 0.18);
+    // Sort dead-ends: farther from centre → more hidden → bigger reward
+    const centreQ = this._blobCentreQ ?? this.offsetQ;
+    deadEnds.sort((a, b) => {
+      const da = Math.abs(a.q - centreQ) + Math.abs(a.r);
+      const db = Math.abs(b.q - centreQ) + Math.abs(b.r);
+      return db - da; // farther first
+    });
 
-    for (let i = 0; i < coinMax && i < deadEnds.length; i++) {
-      deadEnds[i].hasCurrency   = true;
-      deadEnds[i].currencyAmount = 1 + this.rng.int(0, 1);
+    let remaining = totalBudget;
+
+    // Jackpot dead-ends (large concentration in the most hidden corners)
+    const jackpotCount = Math.max(1, Math.min(Math.ceil(r / 3), deadEnds.length));
+    const jackpotShare = Math.floor(remaining * 0.55);
+    const jackpotBase  = jackpotCount > 0 ? Math.floor(jackpotShare / jackpotCount) : 0;
+
+    for (let i = 0; i < jackpotCount; i++) {
+      const cell   = deadEnds[i];
+      if (!cell) break;
+      const spread = Math.floor(jackpotBase * 0.35);
+      const amount = jackpotBase + this.rng.int(-spread, spread);
+      cell.hasCurrency    = true;
+      cell.currencyAmount = Math.max(10, amount);
+      remaining -= cell.currencyAmount;
     }
-    for (let i = coinMax; i < coinMax + upMax && i < deadEnds.length; i++) {
-      deadEnds[i].hasUpgrade = true;
+
+    // Medium dead-ends
+    const medStart = jackpotCount;
+    const medCount = Math.min(deadEnds.length - medStart, Math.ceil(r * 0.7));
+    for (let i = medStart; i < medStart + medCount; i++) {
+      const cell = deadEnds[i];
+      if (!cell || remaining <= 0) break;
+      const amount = this.rng.int(2, 8);
+      cell.hasCurrency    = true;
+      cell.currencyAmount = amount;
+      remaining -= amount;
+    }
+
+    // Scatter 1-coin nodes on path and off-path cells
+    const scatterPool = [];
+    for (const cell of offPath)  scatterPool.push(cell);
+    for (const key  of onPath)   scatterPool.push(this.cells.get(key));
+    this.rng.shuffle(scatterPool);
+
+    const scatterRate = 0.28;
+    for (const cell of scatterPool) {
+      if (!cell || remaining <= 0) break;
+      if (cell.hasCurrency) continue;
+      if (this.rng.next() < scatterRate) {
+        cell.hasCurrency    = true;
+        cell.currencyAmount = 1;
+        remaining--;
+      }
+    }
+  }
+
+  // ── Artifact placement: one guaranteed at final depth, bonus by progress ──────
+
+  _placeArtifacts() {
+    if (!this.expeditionZoneId) return; // no artifacts outside expeditions
+
+    const path    = this.findPath(this.startCell.key, this.goalCell.key);
+    const pathSet = new Set(path);
+
+    // Dead-ends that are off the optimal path
+    const deadEndsOffPath = [];
+    for (const cell of this.cells.values()) {
+      if (cell.isTunnel || cell.isStart || cell.isGoal || pathSet.has(cell.key)) continue;
+      const open = cell.walls.filter(w => !w).length;
+      if (open === 1) deadEndsOffPath.push(cell);
+    }
+    this.rng.shuffle(deadEndsOffPath);
+
+    const reg = typeof ArtifactRegistry !== 'undefined' ? ArtifactRegistry : null;
+    if (!reg) return;
+
+    // Guaranteed artifact in the final labyrinth of an expedition
+    if (this.isFinalLab && deadEndsOffPath.length > 0) {
+      const typeId = reg.getFirstArtifactForZone(this.expeditionZoneId);
+      const cell   = deadEndsOffPath.shift();
+      cell.hasArtifact    = true;
+      cell.artifactTypeId = typeId;
+    }
+
+    // Bonus artifact probability: 5% base + 5% per run completed
+    const bonusChance = Math.min(0.40, 0.05 + this.expeditionRunIdx * 0.05);
+    for (let i = 0; i < Math.min(2, deadEndsOffPath.length); i++) {
+      if (this.rng.next() < bonusChance) {
+        const cell   = deadEndsOffPath[i];
+        const typeId = reg.getRandomFromPool(this.rng);
+        cell.hasArtifact    = true;
+        cell.artifactTypeId = typeId;
+      }
     }
   }
 
@@ -607,6 +713,8 @@ class HexGridGenerator {
       radius: this.radius, windingFactor: this.windingFactor, seed: this.seed,
       offsetQ: this.offsetQ, topologyMode: this.topologyMode, clusterCount: this.clusterCount,
       incomingQ: this.incomingQ,
+      isFinalLab: this.isFinalLab, expeditionZoneId: this.expeditionZoneId,
+      expeditionRunIdx: this.expeditionRunIdx,
       startKey: this.startCell?.key, goalKey: this.goalCell?.key,
       startEntranceDir: this.startEntranceDir ?? -1,
       goalExitDir:      this.goalExitDir      ?? -1,
@@ -619,6 +727,9 @@ class HexGridGenerator {
       radius: data.radius, windingFactor: data.windingFactor, seed: data.seed,
       offsetQ: data.offsetQ ?? 0, topologyMode: data.topologyMode ?? 'SINGLE_BLOB',
       clusterCount: data.clusterCount ?? 2, incomingQ: data.incomingQ ?? -1,
+      isFinalLab: data.isFinalLab ?? false,
+      expeditionZoneId: data.expeditionZoneId ?? null,
+      expeditionRunIdx: data.expeditionRunIdx ?? 0,
     });
     for (const cellData of data.cells) {
       const cell = HexCell.fromJSON(cellData);

@@ -24,6 +24,10 @@ class HexCell {
     this.hasUpgrade     = false;
     this.blockadeLevel  = 0; // 0 = none, 1 = blockade placed
 
+    // Artifact loot
+    this.hasArtifact   = false;
+    this.artifactTypeId = null;
+
     // Generation bookkeeping
     this.visited = false;
     this.distFromCenter = 0;
@@ -51,6 +55,8 @@ class HexCell {
       currencyAmount: this.currencyAmount,
       hasUpgrade:     this.hasUpgrade,
       blockadeLevel:  this.blockadeLevel,
+      hasArtifact:    this.hasArtifact,
+      artifactTypeId: this.artifactTypeId,
     };
   }
 
@@ -67,6 +73,8 @@ class HexCell {
     cell.currencyAmount = data.currencyAmount ?? 0;
     cell.hasUpgrade     = data.hasUpgrade     ?? false;
     cell.blockadeLevel  = data.blockadeLevel  ?? 0;
+    cell.hasArtifact    = data.hasArtifact    ?? false;
+    cell.artifactTypeId = data.artifactTypeId ?? null;
     return cell;
   }
 }

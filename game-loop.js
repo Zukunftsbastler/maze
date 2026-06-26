@@ -190,10 +190,13 @@ class ExpeditionSession {
 
   get config() {
     return {
-      radius:       this._zone.startRadius + this._runIndex,
-      sightRange:   this._zone.sightRange  ?? 4,
-      topology:     'SINGLE_BLOB',
-      clusterCount: 2,
+      radius:            this._zone.startRadius + this._runIndex,
+      sightRange:        this._zone.sightRange  ?? 4,
+      topology:          'SINGLE_BLOB',
+      clusterCount:      2,
+      isFinalLab:        this._runIndex === this._zone.mazeCount - 1,
+      expeditionZoneId:  this._zone.id,
+      expeditionRunIdx:  this._runIndex,
     };
   }
 
@@ -797,13 +800,16 @@ class GameLoop {
     const cfg = pm.config;
 
     const gen = new HexGridGenerator({
-      radius:        cfg.radius,
-      windingFactor: this._randomWindingFactor(),
-      seed:          this._randomSeed(),
-      offsetQ:       this.nextOffsetQ,
-      topologyMode:  cfg.topology,
-      clusterCount:  cfg.clusterCount,
-      incomingQ:     this.prevMaxQ ?? -1,
+      radius:           cfg.radius,
+      windingFactor:    this._randomWindingFactor(),
+      seed:             this._randomSeed(),
+      offsetQ:          this.nextOffsetQ,
+      topologyMode:     cfg.topology,
+      clusterCount:     cfg.clusterCount,
+      incomingQ:        this.prevMaxQ ?? -1,
+      isFinalLab:       cfg.isFinalLab        ?? false,
+      expeditionZoneId: cfg.expeditionZoneId  ?? null,
+      expeditionRunIdx: cfg.expeditionRunIdx   ?? 0,
     });
     const grid = gen.generate();
 
@@ -839,10 +845,40 @@ class GameLoop {
 
   // ── Run-state transitions ──────────────────────────────────────────────────
 
+  // Read exhibited artifact effects from localStorage (decoupled from panoptikum.js)
+  _getPanoptikumEffects() {
+    try {
+      if (typeof ArtifactRegistry === 'undefined') return null;
+      const colRaw = localStorage.getItem('hexmaze_collection');
+      const labRaw = localStorage.getItem('hexmaze_laboratory');
+      if (!colRaw) return null;
+      const colState   = JSON.parse(colRaw);
+      const labState   = labRaw ? JSON.parse(labRaw) : {};
+      const unlockedByTypeId = labState.unlockedFields || {};
+      const exhibitFx  = ArtifactRegistry.getActiveEffects(colState.pedestals || [], unlockedByTypeId);
+      const equipFx    = ArtifactRegistry.getEquippedEffects(labState.equipped  || {}, unlockedByTypeId);
+      return {
+        sightRangeBonus:  exhibitFx.sightRangeBonus  + equipFx.sightRangeBonus,
+        peekTimeBonus:    exhibitFx.peekTimeBonus     + equipFx.peekTimeBonus,
+        nemesisSpeedMult: exhibitFx.nemesisSpeedMult  + equipFx.nemesisSpeedMult,
+      };
+    } catch (_) { return null; }
+  }
+
   _showPreRun() {
     const pm  = this.progression;
     const cfg = pm.config;
     this.sightRange = cfg.sightRange;
+
+    // Apply panoptikum artifact effects (exhibit + equip combined)
+    const panoFx = this._getPanoptikumEffects();
+    if (panoFx) {
+      this.sightRange          = Math.max(1, this.sightRange + Math.round(panoFx.sightRangeBonus));
+      pm.peekDuration          = Math.max(0, (pm.peekDuration ?? 2.0) + panoFx.peekTimeBonus);
+      this._nemesisSpeed       = Math.max(40, 130 * Math.max(0.5, 1 + panoFx.nemesisSpeedMult));
+    } else {
+      this._nemesisSpeed = 130;
+    }
 
     // Re-compute difficulty score and store
     this._levelDifficultyScore = pm.difficultyScore(this._levelPathLength);
@@ -1693,10 +1729,21 @@ class GameLoop {
             this._triggerHUDFlash();
           }
         }
-        if (cell.hasUpgrade) {
-          this._playerCurrency += 2; // upgrades convert to +2 currency
-          cell.hasUpgrade = false;
+        if (cell.hasArtifact && cell.artifactTypeId) {
+          const typeId = cell.artifactTypeId;
+          cell.hasArtifact    = false;
+          cell.artifactTypeId = null;
           this._fogDirty = true;
+
+          // Floating marker
+          const { x: ax, y: ay } = HexMath.toPixel(cell.q, cell.r, this.cellSize);
+          const def = typeof ARTIFACT_CATALOG !== 'undefined' ? ARTIFACT_CATALOG[typeId] : null;
+          this._floatingTexts.spawn(ax, ay - 10, `★ ${def?.name ?? 'Artifact'}!`, '#c880ff');
+
+          // Dispatch event so PanoptikumHub can receive it
+          document.dispatchEvent(new CustomEvent('artifact:collected', {
+            detail: { typeId },
+          }));
         }
       }
     }
