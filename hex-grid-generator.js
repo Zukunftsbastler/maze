@@ -13,6 +13,7 @@ class HexGridGenerator {
     this.isFinalLab        = options.isFinalLab        ?? false;
     this.expeditionZoneId  = options.expeditionZoneId  ?? null;
     this.expeditionRunIdx  = options.expeditionRunIdx  ?? 0;
+    this.depth             = options.depth             ?? 0;   // depth number 1-5
 
     this.rng      = new Random(this.seed);
     this.cells    = new Map();
@@ -40,6 +41,7 @@ class HexGridGenerator {
     this._removeRandomWalls(this.radius);
     this._tagBuildableCells();
     this._placeGold();
+    this._placeMaterial();
     this._placeArtifacts();
 
     return this;
@@ -613,6 +615,36 @@ class HexGridGenerator {
         cell.currencyAmount = 1;
         remaining--;
       }
+    }
+  }
+
+  // ── Barricade material placement — formula: max(1, radius − depth) ───────────
+  _placeMaterial() {
+    if (!this.expeditionZoneId) return;
+
+    // Number of material units to scatter: at least 1, grows with radius, shrinks with depth
+    const totalUnits = Math.max(1, this.radius - this.depth);
+
+    const path    = this.findPath(this.startCell.key, this.goalCell.key);
+    const pathSet = new Set(path);
+
+    // Dead-ends off the critical path are preferred; fall back to any off-path cell
+    const deadEnds = [], offPath = [];
+    for (const cell of this.cells.values()) {
+      if (cell.isTunnel || cell.isStart || cell.isGoal) continue;
+      if (cell.hasCurrency || cell.hasArtifact || cell.hasMaterial) continue;
+      if (pathSet.has(cell.key)) continue;
+      const open = cell.walls.filter(w => !w).length;
+      (open === 1 ? deadEnds : offPath).push(cell);
+    }
+
+    this.rng.shuffle(deadEnds);
+    this.rng.shuffle(offPath);
+    const candidates = [...deadEnds, ...offPath];
+
+    for (let i = 0; i < totalUnits && i < candidates.length; i++) {
+      candidates[i].hasMaterial    = true;
+      candidates[i].materialAmount = 1;
     }
   }
 

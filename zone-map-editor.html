@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Zone Map Editor — Hex Maze</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: #0a0a14; color: #c8d6e5; font-family: 'Courier New', monospace; font-size: 13px; display: flex; flex-direction: column; height: 100vh; }
+#toolbar { display: flex; gap: 12px; align-items: center; padding: 8px 14px; background: #111; border-bottom: 1px solid #223; flex-wrap: wrap; }
+#toolbar label { color: #4a9eff; }
+select, input, button { background: #1a2030; color: #c8d6e5; border: 1px solid #334; padding: 4px 8px; font-family: inherit; font-size: 12px; cursor: pointer; }
+button { border-color: #4a9eff; color: #4a9eff; }
+button:hover { background: rgba(74,158,255,0.15); }
+button.danger { border-color: #ff4466; color: #ff4466; }
+#status { padding: 5px 14px; background: #0d1220; border-bottom: 1px solid #223; font-size: 12px; color: #4a9eff; min-height: 24px; }
+#main { display: flex; flex: 1; overflow: hidden; }
+#canvas-wrap { flex: 1; overflow: auto; position: relative; cursor: crosshair; }
+canvas { display: block; }
+#sidebar { width: 340px; background: #0d1220; border-left: 1px solid #223; padding: 14px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
+#sidebar h3 { color: #4a9eff; border-bottom: 1px solid #223; padding-bottom: 6px; margin-bottom: 4px; }
+.zone-entry { background: #111; border: 1px solid #334; border-radius: 4px; padding: 8px; cursor: pointer; }
+.zone-entry:hover { border-color: #4a9eff; }
+.zone-entry.selected { border-color: #ffd23f; }
+.zone-entry .zone-id { color: #ffd23f; font-weight: bold; }
+.zone-entry .zone-rect { color: #8899aa; font-size: 11px; margin-top: 2px; }
+#output-area { background: #0a0f1a; border: 1px solid #334; padding: 10px; font-size: 11px; color: #4aff88; white-space: pre; overflow-x: auto; max-height: 200px; }
+#copy-btn { margin-top: 6px; }
+.color-swatch { display: inline-block; width: 12px; height: 12px; border-radius: 2px; margin-right: 4px; vertical-align: middle; }
+</style>
+</head>
+<body>
+
+<div id="toolbar">
+  <label>Map:</label>
+  <select id="map-select">
+    <option value="ASSETS/LEVEL_MAPS/Level01.png" data-w="2816" data-h="1536" data-depth="depth1">Level01 — The Outer Vaults</option>
+    <option value="ASSETS/LEVEL_MAPS/Level02.png" data-w="2752" data-h="1536" data-depth="depth2">Level02 — The Brackish Halls</option>
+    <option value="ASSETS/LEVEL_MAPS/Level03.png" data-w="2816" data-h="1536" data-depth="depth3">Level03 — The Amber Warrens</option>
+    <option value="ASSETS/LEVEL_MAPS/Level04.png" data-w="2816" data-h="1536" data-depth="depth4">Level04 — The Smoldering Deep</option>
+    <option value="ASSETS/LEVEL_MAPS/Level05.png" data-w="2752" data-h="1536" data-depth="depth5">Level05 — The Null Core</option>
+  </select>
+  <label>Zoom: <input type="range" id="zoom" min="0.1" max="1" step="0.05" value="0.45"></label>
+  <span id="zoom-val">45%</span>
+  <button id="btn-show-schema">Toggle Schematic</button>
+  <button id="btn-clear-draft" class="danger">Clear Draft</button>
+  <button id="btn-copy">Copy JS</button>
+</div>
+
+<div id="status">Move over canvas to see image coordinates. Click+drag to draw a zone rect.</div>
+
+<div id="main">
+  <div id="canvas-wrap">
+    <canvas id="canvas"></canvas>
+  </div>
+  <div id="sidebar">
+    <div>
+      <h3>Zones for this depth</h3>
+      <div id="zone-list"></div>
+    </div>
+    <div>
+      <h3>Draft rect</h3>
+      <div id="draft-info" style="color:#8899aa; font-size:12px;">Click and drag on the map to define a zone area.</div>
+      <div id="zone-id-wrap" style="margin-top:8px; display:none">
+        <label>Zone ID: <select id="zone-id-select"></select></label>
+        <button id="btn-assign" style="margin-left:8px">Assign →</button>
+      </div>
+    </div>
+    <div>
+      <h3>Output</h3>
+      <pre id="output-area"></pre>
+      <button id="copy-btn">Copy to clipboard</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── Zone data (matches expedition-maps.js) ─────────────────────────────────
+
+const DEPTH_ZONES = {
+  depth1: ['d1z01','d1z02','d1z03','d1z04','d1z05','d1z06','d1z07','d1z08','d1z09','d1z10','d1z11','d1z12'],
+  depth2: ['d2z01','d2z02','d2z03','d2z04','d2z05','d2z06','d2z07','d2z08','d2z09','d2z10','d2z11','d2z12'],
+  depth3: ['d3z01','d3z02','d3z03','d3z04','d3z05','d3z06','d3z07','d3z08','d3z09','d3z10','d3z11','d3z12'],
+  depth4: ['d4z01','d4z02','d4z03','d4z04','d4z05','d4z06','d4z07','d4z08','d4z09','d4z10','d4z11','d4z12'],
+  depth5: ['d5z01','d5z02','d5z03','d5z04','d5z05','d5z06','d5z07','d5z08','d5z09','d5z10','d5z11','d5z12'],
+};
+
+// 4 column colors repeated per row
+const COL_COLORS = ['#ff6644','#4488ff','#44cc88','#ff88dd'];
+const ZONE_COLORS = {};
+for (const [depth, ids] of Object.entries(DEPTH_ZONES)) {
+  ids.forEach((id, i) => { ZONE_COLORS[id] = COL_COLORS[i % 4]; });
+}
+
+// ── State ───────────────────────────────────────────────────────────────────
+
+let currentDepth = 'depth1';
+let imgW = 2816, imgH = 1536;
+let zoom = 0.45;
+let showSchematic = false;
+
+// Pixel-perfect 4×3 grid rects — matches EXPEDITION_ZONES mapRect in expedition-maps.js
+const zoneRects = {
+  // depth1 (2816×1536): col width=704, row height=512
+  d1z01:{x:0,    y:0,    w:704, h:512}, d1z02:{x:704,  y:0,    w:704, h:512},
+  d1z03:{x:1408, y:0,    w:704, h:512}, d1z04:{x:2112, y:0,    w:704, h:512},
+  d1z05:{x:0,    y:512,  w:704, h:512}, d1z06:{x:704,  y:512,  w:704, h:512},
+  d1z07:{x:1408, y:512,  w:704, h:512}, d1z08:{x:2112, y:512,  w:704, h:512},
+  d1z09:{x:0,    y:1024, w:704, h:512}, d1z10:{x:704,  y:1024, w:704, h:512},
+  d1z11:{x:1408, y:1024, w:704, h:512}, d1z12:{x:2112, y:1024, w:704, h:512},
+  // depth2 (2752×1536): col width=688, row height=512
+  d2z01:{x:0,    y:0,    w:688, h:512}, d2z02:{x:688,  y:0,    w:688, h:512},
+  d2z03:{x:1376, y:0,    w:688, h:512}, d2z04:{x:2064, y:0,    w:688, h:512},
+  d2z05:{x:0,    y:512,  w:688, h:512}, d2z06:{x:688,  y:512,  w:688, h:512},
+  d2z07:{x:1376, y:512,  w:688, h:512}, d2z08:{x:2064, y:512,  w:688, h:512},
+  d2z09:{x:0,    y:1024, w:688, h:512}, d2z10:{x:688,  y:1024, w:688, h:512},
+  d2z11:{x:1376, y:1024, w:688, h:512}, d2z12:{x:2064, y:1024, w:688, h:512},
+  // depth3 (2816×1536): col width=704, row height=512
+  d3z01:{x:0,    y:0,    w:704, h:512}, d3z02:{x:704,  y:0,    w:704, h:512},
+  d3z03:{x:1408, y:0,    w:704, h:512}, d3z04:{x:2112, y:0,    w:704, h:512},
+  d3z05:{x:0,    y:512,  w:704, h:512}, d3z06:{x:704,  y:512,  w:704, h:512},
+  d3z07:{x:1408, y:512,  w:704, h:512}, d3z08:{x:2112, y:512,  w:704, h:512},
+  d3z09:{x:0,    y:1024, w:704, h:512}, d3z10:{x:704,  y:1024, w:704, h:512},
+  d3z11:{x:1408, y:1024, w:704, h:512}, d3z12:{x:2112, y:1024, w:704, h:512},
+  // depth4 (2816×1536): col width=704, row height=512
+  d4z01:{x:0,    y:0,    w:704, h:512}, d4z02:{x:704,  y:0,    w:704, h:512},
+  d4z03:{x:1408, y:0,    w:704, h:512}, d4z04:{x:2112, y:0,    w:704, h:512},
+  d4z05:{x:0,    y:512,  w:704, h:512}, d4z06:{x:704,  y:512,  w:704, h:512},
+  d4z07:{x:1408, y:512,  w:704, h:512}, d4z08:{x:2112, y:512,  w:704, h:512},
+  d4z09:{x:0,    y:1024, w:704, h:512}, d4z10:{x:704,  y:1024, w:704, h:512},
+  d4z11:{x:1408, y:1024, w:704, h:512}, d4z12:{x:2112, y:1024, w:704, h:512},
+  // depth5 (2752×1536): col width=688, row height=512
+  d5z01:{x:0,    y:0,    w:688, h:512}, d5z02:{x:688,  y:0,    w:688, h:512},
+  d5z03:{x:1376, y:0,    w:688, h:512}, d5z04:{x:2064, y:0,    w:688, h:512},
+  d5z05:{x:0,    y:512,  w:688, h:512}, d5z06:{x:688,  y:512,  w:688, h:512},
+  d5z07:{x:1376, y:512,  w:688, h:512}, d5z08:{x:2064, y:512,  w:688, h:512},
+  d5z09:{x:0,    y:1024, w:688, h:512}, d5z10:{x:688,  y:1024, w:688, h:512},
+  d5z11:{x:1376, y:1024, w:688, h:512}, d5z12:{x:2064, y:1024, w:688, h:512},
+};
+
+// Draft rect being drawn
+let draft = null;     // {x1,y1,x2,y2} in image coords
+let dragging = false;
+
+// Loaded images
+const images = {};
+let bgImg = null, schemImg = null;
+
+// ── Canvas ─────────────────────────────────────────────────────────────────
+
+const canvas = document.getElementById('canvas');
+const ctx    = canvas.getContext('2d');
+
+function toCanvas(ix, iy) { return [ix * zoom, iy * zoom]; }
+function toImage(cx, cy) {
+  const r = canvas.getBoundingClientRect();
+  const px = (cx - r.left) / zoom;
+  const py = (cy - r.top)  / zoom;
+  return [Math.round(px), Math.round(py)];
+}
+
+function draw() {
+  canvas.width  = Math.round(imgW * zoom);
+  canvas.height = Math.round(imgH * zoom);
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  // Background image
+  if (bgImg?.complete) {
+    if (showSchematic && schemImg?.complete && schemImg.naturalWidth > 0) {
+      ctx.drawImage(schemImg, 0, 0, canvas.width, canvas.height);
+    } else {
+      ctx.drawImage(bgImg, 0, 0, canvas.width, canvas.height);
+    }
+  }
+
+  // Existing zone rects for current depth
+  const zones = DEPTH_ZONES[currentDepth] || [];
+  for (const id of zones) {
+    const r = zoneRects[id];
+    if (!r) continue;
+    const col = ZONE_COLORS[id] || '#fff';
+    const [cx, cy] = toCanvas(r.x + r.w / 2, r.y + r.h / 2);
+    const cw = r.w * zoom, ch = r.h * zoom;
+    const [bx, by] = toCanvas(r.x, r.y);
+
+    ctx.save();
+    ctx.strokeStyle = col;
+    ctx.lineWidth   = 2;
+    ctx.setLineDash([6, 4]);
+    ctx.strokeRect(bx, by, cw, ch);
+    ctx.setLineDash([]);
+
+    ctx.fillStyle = col.replace(')', ',0.12)').replace('rgb', 'rgba');
+    ctx.fillRect(bx, by, cw, ch);
+
+    // Label
+    ctx.fillStyle = col;
+    ctx.font = `bold ${Math.max(10, Math.round(14 * zoom))}px Courier New`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(id, cx, cy);
+    ctx.restore();
+  }
+
+  // Draft rect
+  if (draft) {
+    const x1 = Math.min(draft.x1, draft.x2), y1 = Math.min(draft.y1, draft.y2);
+    const x2 = Math.max(draft.x1, draft.x2), y2 = Math.max(draft.y1, draft.y2);
+    const [bx, by] = toCanvas(x1, y1);
+    const cw = (x2 - x1) * zoom, ch = (y2 - y1) * zoom;
+    ctx.save();
+    ctx.strokeStyle = '#ffd23f';
+    ctx.lineWidth   = 2.5;
+    ctx.strokeRect(bx, by, cw, ch);
+    ctx.fillStyle   = 'rgba(255,210,63,0.15)';
+    ctx.fillRect(bx, by, cw, ch);
+    ctx.restore();
+  }
+}
+
+// ── Mouse handling ─────────────────────────────────────────────────────────
+
+canvas.addEventListener('mousedown', e => {
+  const [ix, iy] = toImage(e.clientX, e.clientY);
+  draft = { x1: ix, y1: iy, x2: ix, y2: iy };
+  dragging = true;
+  draw();
+});
+canvas.addEventListener('mousemove', e => {
+  const [ix, iy] = toImage(e.clientX, e.clientY);
+  document.getElementById('status').textContent =
+    `Image coords: (${ix}, ${iy})  |  Map: ${imgW}×${imgH}  |  Zoom: ${Math.round(zoom * 100)}%`;
+  if (dragging && draft) {
+    draft.x2 = ix; draft.y2 = iy;
+    updateDraftInfo();
+    draw();
+  }
+});
+canvas.addEventListener('mouseup', e => {
+  if (!dragging || !draft) { dragging = false; return; }
+  dragging = false;
+  const [ix, iy] = toImage(e.clientX, e.clientY);
+  draft.x2 = ix; draft.y2 = iy;
+  updateDraftInfo();
+  draw();
+});
+
+function updateDraftInfo() {
+  if (!draft) return;
+  const x = Math.min(draft.x1, draft.x2);
+  const y = Math.min(draft.y1, draft.y2);
+  const w = Math.abs(draft.x2 - draft.x1);
+  const h = Math.abs(draft.y2 - draft.y1);
+  document.getElementById('draft-info').textContent =
+    `{x:${x}, y:${y}, w:${w}, h:${h}}`;
+  document.getElementById('zone-id-wrap').style.display = 'block';
+}
+
+// ── Image loading ──────────────────────────────────────────────────────────
+
+function loadMap(src, schSrc, w, h) {
+  imgW = w; imgH = h;
+  bgImg = null; schemImg = null;
+
+  const img = new Image();
+  img.onload = () => { bgImg = img; draw(); };
+  img.src = src;
+  images[src] = img;
+
+  const sch = new Image();
+  sch.onload = () => { schemImg = sch; };
+  sch.src = schSrc;
+}
+
+// ── Sidebar zone list ──────────────────────────────────────────────────────
+
+function buildZoneList() {
+  const list  = document.getElementById('zone-list');
+  const zones = DEPTH_ZONES[currentDepth] || [];
+  list.innerHTML = '';
+  const idSel = document.getElementById('zone-id-select');
+  idSel.innerHTML = '';
+  for (const id of zones) {
+    const r = zoneRects[id] || {};
+    const col = ZONE_COLORS[id] || '#fff';
+    const el = document.createElement('div');
+    el.className = 'zone-entry';
+    el.dataset.id = id;
+    el.innerHTML = `<span class="color-swatch" style="background:${col}"></span><span class="zone-id">${id}</span>
+      <div class="zone-rect">{x:${r.x??'?'}, y:${r.y??'?'}, w:${r.w??'?'}, h:${r.h??'?'}}</div>`;
+    el.addEventListener('click', () => {
+      document.querySelectorAll('.zone-entry').forEach(e => e.classList.remove('selected'));
+      el.classList.add('selected');
+    });
+    list.appendChild(el);
+    const opt = document.createElement('option');
+    opt.value = id; opt.textContent = id;
+    idSel.appendChild(opt);
+  }
+}
+
+function buildOutput() {
+  const zones = DEPTH_ZONES[currentDepth] || [];
+  const lines = zones.map(id => {
+    const r = zoneRects[id] || {x:0,y:0,w:0,h:0};
+    return `  ${id}:  { x:${r.x}, y:${r.y}, w:${r.w}, h:${r.h} },`;
+  });
+  document.getElementById('output-area').textContent = lines.join('\n');
+}
+
+// ── Controls ───────────────────────────────────────────────────────────────
+
+document.getElementById('zoom').addEventListener('input', e => {
+  zoom = parseFloat(e.target.value);
+  document.getElementById('zoom-val').textContent = Math.round(zoom * 100) + '%';
+  draw();
+});
+
+document.getElementById('btn-show-schema').addEventListener('click', () => {
+  showSchematic = !showSchematic;
+  draw();
+});
+
+document.getElementById('btn-clear-draft').addEventListener('click', () => {
+  draft = null;
+  document.getElementById('draft-info').textContent = 'Click and drag on the map to define a zone area.';
+  document.getElementById('zone-id-wrap').style.display = 'none';
+  draw();
+});
+
+document.getElementById('btn-assign').addEventListener('click', () => {
+  if (!draft) return;
+  const id = document.getElementById('zone-id-select').value;
+  const x = Math.min(draft.x1, draft.x2);
+  const y = Math.min(draft.y1, draft.y2);
+  const w = Math.abs(draft.x2 - draft.x1);
+  const h = Math.abs(draft.y2 - draft.y1);
+  zoneRects[id] = {x, y, w, h};
+  draft = null;
+  document.getElementById('draft-info').textContent = `Assigned ${id} ✓`;
+  document.getElementById('zone-id-wrap').style.display = 'none';
+  buildZoneList();
+  buildOutput();
+  draw();
+});
+
+document.getElementById('copy-btn').addEventListener('click', () => {
+  const text = document.getElementById('output-area').textContent;
+  navigator.clipboard.writeText(text).then(() => {
+    document.getElementById('copy-btn').textContent = 'Copied ✓';
+    setTimeout(() => document.getElementById('copy-btn').textContent = 'Copy to clipboard', 1500);
+  });
+});
+
+document.getElementById('map-select').addEventListener('change', e => {
+  const opt = e.target.options[e.target.selectedIndex];
+  const src = opt.value;
+  const sch = src.replace('.png', '_map.png').replace('Level03_map.png', 'Level03_map copy.png');
+  const w   = parseInt(opt.dataset.w);
+  const h   = parseInt(opt.dataset.h);
+  currentDepth = opt.dataset.depth;
+  draft = null;
+  loadMap(src, sch, w, h);
+  buildZoneList();
+  buildOutput();
+});
+
+// ── Boot ──────────────────────────────────────────────────────────────────
+
+const firstOpt = document.getElementById('map-select').options[0];
+currentDepth = firstOpt.dataset.depth;
+loadMap(
+  firstOpt.value,
+  firstOpt.value.replace('.png', '_map.png'),
+  parseInt(firstOpt.dataset.w),
+  parseInt(firstOpt.dataset.h)
+);
+buildZoneList();
+buildOutput();
+</script>
+</body>
+</html>

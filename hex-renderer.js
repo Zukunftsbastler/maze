@@ -355,6 +355,35 @@ class HexRenderer {
           ctx.fillText(label, cx, cy + half * 0.55);
           ctx.shadowBlur = 0;
         }
+      } else if (cell.hasMaterial && cell.materialAmount > 0) {
+        // Barricade material — placeholder canvas drawing (replace with sprite when assets ready)
+        const half = size * 0.38;
+        ctx.save();
+        ctx.shadowColor = '#c8960a';
+        ctx.shadowBlur  = 10;
+        // Brown crate-like block
+        ctx.fillStyle   = '#7a5010';
+        ctx.strokeStyle = '#c8960a';
+        ctx.lineWidth   = 1.5;
+        ctx.beginPath();
+        ctx.rect(cx - half, cy - half * 0.75, half * 2, half * 1.5);
+        ctx.fill(); ctx.stroke();
+        // Plank lines
+        ctx.shadowBlur = 0;
+        ctx.strokeStyle = '#5a3c0a';
+        ctx.lineWidth   = 0.8;
+        ctx.beginPath();
+        ctx.moveTo(cx - half, cy); ctx.lineTo(cx + half, cy);
+        ctx.moveTo(cx, cy - half * 0.75); ctx.lineTo(cx, cy + half * 0.75);
+        ctx.stroke();
+        ctx.restore();
+        // Amount badge
+        if (cell.materialAmount > 1) {
+          ctx.fillStyle = 'rgba(200,150,10,0.92)';
+          ctx.font = `bold ${Math.max(9, Math.round(size * 0.22))}px monospace`;
+          ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+          ctx.fillText(String(cell.materialAmount), cx, cy + half * 0.85);
+        }
       } else if (cell.hasArtifact && cell.artifactTypeId) {
         const def = (typeof ARTIFACT_CATALOG !== 'undefined')
           ? ARTIFACT_CATALOG[cell.artifactTypeId] : null;

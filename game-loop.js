@@ -4,6 +4,17 @@ const ICON_SVG = {
   gold:     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><polygon points="10,1 18.66,6 18.66,14 10,19 1.34,14 1.34,6" fill="#ffd23f" stroke="#cc9900" stroke-width="1.2"/><text x="10" y="13.5" text-anchor="middle" font-size="8" font-family="monospace" font-weight="bold" fill="#664400">G</text></svg>`,
   spot:     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><circle cx="10" cy="10" r="8" fill="none" stroke="#8844ff" stroke-width="1.5" stroke-dasharray="3,2"/><circle cx="10" cy="10" r="3" fill="#8844ff"/></svg>`,
   blockade: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><rect x="1" y="5" width="18" height="10" rx="2" fill="#8844ff" stroke="#c8a0ff" stroke-width="1"/><line x1="7" y1="5" x2="7" y2="15" stroke="#c8a0ff" stroke-width="0.8"/><line x1="13" y1="5" x2="13" y2="15" stroke="#c8a0ff" stroke-width="0.8"/><line x1="1" y1="10" x2="19" y2="10" stroke="#c8a0ff" stroke-width="0.8"/></svg>`,
+  // Barricade material placeholders — replace with actual sprites when assets are ready
+  // Depth 1: Wooden Planks — two brown horizontal planks with grain lines
+  'material-planks': `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><rect x="1" y="5" width="18" height="4" rx="1" fill="#8B6014" stroke="#5a3d08" stroke-width="0.8"/><line x1="6" y1="5" x2="6" y2="9" stroke="#5a3d08" stroke-width="0.5"/><line x1="13" y1="5" x2="13" y2="9" stroke="#5a3d08" stroke-width="0.5"/><rect x="1" y="11" width="18" height="4" rx="1" fill="#8B6014" stroke="#5a3d08" stroke-width="0.8"/><line x1="8" y1="11" x2="8" y2="15" stroke="#5a3d08" stroke-width="0.5"/></svg>`,
+  // Depth 2: Scrap Metal — jagged grey pieces
+  'material-scrap':  `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><polygon points="2,14 5,8 9,12 12,6 16,11 18,7 18,14" fill="#7a8a8a" stroke="#4a5a5a" stroke-width="0.8"/></svg>`,
+  // Depth 3: Hardened Resin Chunks — amber lumps
+  'material-resin':  `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><ellipse cx="7" cy="12" rx="5" ry="4" fill="#c8960a" stroke="#8a5c00" stroke-width="0.8"/><ellipse cx="14" cy="10" rx="4" ry="5" fill="#d4a020" stroke="#8a5c00" stroke-width="0.8"/></svg>`,
+  // Depth 4: Pumice Boulders — reddish-grey rounded boulders
+  'material-pumice': `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><circle cx="8" cy="12" r="5" fill="#b07070" stroke="#7a4040" stroke-width="0.8"/><circle cx="14" cy="11" r="4" fill="#a06060" stroke="#7a4040" stroke-width="0.8"/></svg>`,
+  // Depth 5: Dense Bedrock Fragments — dark grey angular shards
+  'material-bedrock':`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><polygon points="3,16 6,8 11,11 9,16" fill="#555570" stroke="#333348" stroke-width="0.8"/><polygon points="10,15 14,7 18,10 17,15" fill="#444460" stroke="#333348" stroke-width="0.8"/></svg>`,
 };
 
 function parseIconString(str) {
@@ -320,7 +331,7 @@ class GameLoop {
 
     // ── Progression ───────────────────────────────────────────────────────────
     this.progression   = new ProgressionManager();
-    this.totalScore    = parseInt(localStorage.getItem('hexmaze_totalscore') || '0', 10);
+    this.totalXP    = parseInt(localStorage.getItem('hexmaze_totalscore') || '0', 10);
 
     // ── Run-state machine ────────────────────────────────────────────────────
     // 'prerun' → 'peeking' → 'playing' (A/B) → 'nemesis' (C) → 'postrun'
@@ -337,7 +348,8 @@ class GameLoop {
 
     // ── Build / Defence ───────────────────────────────────────────────────────
     this._buildPhaseUnlocked = false;
-    this._playerCurrency     = 0;
+    this._buildMaterial     = 0;   // scarce in-run currency for placing barricades
+    this._runGoldBuffer     = 0;   // meta-gold collected this run; flushed to panoptikumGold on success
     this._buildUIOpen        = false;
     this._buildTargetKey     = null;
 
@@ -385,7 +397,7 @@ class GameLoop {
     this._expeditionMode    = false;
     this._expeditionZone    = null;   // zone object from ExpeditionMaps
     this._expeditionRunIdx  = 0;      // current lab index (0-based)
-    this._expeditionScore   = 0;      // running score for the active expedition
+    this._expeditionXP   = 0;      // running score for the active expedition
     this._onExpeditionDone  = null;   // callback(totalScore) on expedition complete
     this._onExpeditionAbort = null;   // callback(penaltyScore) on abort
 
@@ -410,6 +422,8 @@ class GameLoop {
     this._rafId    = null;
     this._lastTime = 0;
 
+    this._runArtifactIds       = []; // tracks instanceIds gained in the current run for rollback
+    this._inputAbortController = new AbortController();
     this._bindInput();
     this._bindOverlayButtons();
   }
@@ -439,12 +453,12 @@ class GameLoop {
     this._startRAF();
   }
 
-  stop() { this._stopRAF(); }
+  stop() { this._stopRAF(); this._unbindInput(); }
 
   /** Abort the active expedition: keep 10% of score, clear artifacts, return penalty. */
   _abortExpedition() {
     if (!this._expeditionMode) return;
-    const penalty = Math.floor(this._expeditionScore * 0.10);
+    const penalty = Math.floor(this._expeditionXP * 0.10);
     const cb = this._onExpeditionAbort;
 
     // Close any open overlay
@@ -478,7 +492,7 @@ class GameLoop {
     this._expeditionMode    = true;
     this._expeditionZone    = zone;
     this._expeditionRunIdx  = 0;
-    this._expeditionScore   = 0;
+    this._expeditionXP   = 0;
     this._onExpeditionDone  = onComplete;
     this._onExpeditionAbort = onAbort || null;
 
@@ -510,26 +524,32 @@ class GameLoop {
   _bindInput() {
     const MOVE_KEYS = new Set(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',
                                'q','Q','w','W','e','E','a','A','s','S','d','D']);
+    const signal = this._inputAbortController.signal;
+
+    // Track artifacts added to inventory during a run (for rollback on failure)
+    document.addEventListener('artifact:registered', e => {
+      this._runArtifactIds.push(e.detail.instanceId);
+    }, { signal });
 
     window.addEventListener('keydown', e => {
       if (!this._rafId) return;
       if (e.key === ' ') { this._spaceHeld = true; e.preventDefault(); return; }
       this._keys[e.key] = true;
       if (MOVE_KEYS.has(e.key)) e.preventDefault();
-    });
+    }, { signal });
     window.addEventListener('keyup', e => {
       if (e.key === ' ') { this._spaceHeld = false; this._panActive = false; }
       this._keys[e.key] = false;
-    });
+    }, { signal });
 
     this.canvas.addEventListener('wheel', e => {
       if (!this._rafId) return;
       e.preventDefault();
       const factor = e.deltaY < 0 ? 1.12 : 1 / 1.12;
       this._zoomAtClient(e.clientX, e.clientY, factor);
-    }, { passive: false });
+    }, { passive: false, signal });
 
-    this.canvas.addEventListener('contextmenu', e => e.preventDefault());
+    this.canvas.addEventListener('contextmenu', e => e.preventDefault(), { signal });
 
     this.canvas.addEventListener('mousedown', e => {
       if (!this._rafId) return;
@@ -558,7 +578,7 @@ class GameLoop {
         this._pointerActive = true;
         this._updatePointer(e);
       }
-    });
+    }, { signal });
 
     this.canvas.addEventListener('mousemove', e => {
       if (this._panActive) {
@@ -567,12 +587,12 @@ class GameLoop {
         this._lastPanClientY = e.clientY;
       }
       if (this._pointerActive) this._updatePointer(e);
-    });
+    }, { signal });
 
     window.addEventListener('mouseup', e => {
       if (e.button === 2 || (e.button === 0 && this._panActive)) this._panActive = false;
       if (e.button === 0 && !this._panActive) this._pointerActive = false;
-    });
+    }, { signal });
 
     this.canvas.addEventListener('touchstart', e => {
       if (!this._rafId) return;
@@ -603,7 +623,7 @@ class GameLoop {
         this._pointerActive = false; this._pinching = true;
         this._initPinch(e.touches[0], e.touches[1]);
       }
-    }, { passive: false });
+    }, { passive: false, signal });
 
     this.canvas.addEventListener('touchmove', e => {
       e.preventDefault();
@@ -622,7 +642,7 @@ class GameLoop {
         }
         this._updatePointer(touch);
       }
-    }, { passive: false });
+    }, { passive: false, signal });
 
     window.addEventListener('touchend', e => {
       this._cancelLongPress();
@@ -631,7 +651,11 @@ class GameLoop {
         this._pinching = false;
         this._pointerActive = true; this._updatePointer(e.touches[0]);
       }
-    });
+    }, { signal });
+  }
+
+  _unbindInput() {
+    this._inputAbortController.abort();
   }
 
   _bindOverlayButtons() {
@@ -799,6 +823,10 @@ class GameLoop {
     const pm  = this.progression;
     const cfg = pm.config;
 
+    const depthNum = this._expeditionZone
+      ? (MACRO_DEPTHS.findIndex(d => d.id === this._expeditionZone.depthId) + 1) || 1
+      : 0;
+
     const gen = new HexGridGenerator({
       radius:           cfg.radius,
       windingFactor:    this._randomWindingFactor(),
@@ -810,6 +838,7 @@ class GameLoop {
       isFinalLab:       cfg.isFinalLab        ?? false,
       expeditionZoneId: cfg.expeditionZoneId  ?? null,
       expeditionRunIdx: cfg.expeditionRunIdx   ?? 0,
+      depth:            depthNum,
     });
     const grid = gen.generate();
 
@@ -845,24 +874,77 @@ class GameLoop {
 
   // ── Run-state transitions ──────────────────────────────────────────────────
 
-  // Read exhibited artifact effects from localStorage (decoupled from panoptikum.js)
+  // Read exhibited artifact effects — prefers GlobalGameStats when Panoptikum is loaded,
+  // falls back to a direct localStorage read for contexts where it isn't.
   _getPanoptikumEffects() {
+    if (window.GlobalGameStats) {
+      const s = window.GlobalGameStats;
+      return {
+        sightRangeBonus:  s.sightRangeBonus  || 0,
+        peekTimeBonus:    s.peekTimeBonus     || 0,
+        nemesisSpeedMult: s.nemesisSpeedMult  || 0,
+      };
+    }
     try {
       if (typeof ArtifactRegistry === 'undefined') return null;
       const colRaw = localStorage.getItem('hexmaze_collection');
       const labRaw = localStorage.getItem('hexmaze_laboratory');
       if (!colRaw) return null;
-      const colState   = JSON.parse(colRaw);
-      const labState   = labRaw ? JSON.parse(labRaw) : {};
-      const unlockedByTypeId = labState.unlockedFields || {};
-      const exhibitFx  = ArtifactRegistry.getActiveEffects(colState.pedestals || [], unlockedByTypeId);
-      const equipFx    = ArtifactRegistry.getEquippedEffects(labState.equipped  || {}, unlockedByTypeId);
+      const colState         = JSON.parse(colRaw);
+      const labState         = labRaw ? JSON.parse(labRaw) : {};
+      const unlockedByTypeId = labState.unlockedFields    || {};
+      const unlockedKnowledge = labState.unlockedKnowledge || {};
+      const exhibitFx  = ArtifactRegistry.getActiveEffects(colState.pedestals || [], unlockedByTypeId, unlockedKnowledge);
+      const equipFx    = ArtifactRegistry.getEquippedEffects(labState.equipped  || {}, unlockedByTypeId, unlockedKnowledge);
       return {
         sightRangeBonus:  exhibitFx.sightRangeBonus  + equipFx.sightRangeBonus,
         peekTimeBonus:    exhibitFx.peekTimeBonus     + equipFx.peekTimeBonus,
         nemesisSpeedMult: exhibitFx.nemesisSpeedMult  + equipFx.nemesisSpeedMult,
       };
     } catch (_) { return null; }
+  }
+
+  /**
+   * Build an InventorySummary for LootManager from the persisted panoptikum state.
+   * Reads localStorage directly (same pattern as _getPanoptikumEffects) so it
+   * works whether or not the panoptikum UI is currently mounted.
+   *
+   * @returns {{ acquiredSlots: Object.<string,boolean>, equippedTiers: Object.<string,number> }}
+   */
+  _buildInventorySummary() {
+    try {
+      const colRaw   = localStorage.getItem('hexmaze_collection');
+      const labRaw   = localStorage.getItem('hexmaze_laboratory');
+      const colState = colRaw ? JSON.parse(colRaw) : { inventory: [], pedestals: [] };
+      const labState = labRaw ? JSON.parse(labRaw) : {};
+
+      // Gather every artifact instance the player currently holds.
+      const allItems = [
+        ...(colState.inventory || []),
+        ...(colState.pedestals || []).filter(Boolean),
+        ...Object.values(labState.equipped || {}).filter(Boolean),
+        ...(labState.slots    || []).filter(Boolean),
+      ];
+
+      // acquiredSlots: any equipSlot the player has EVER had an item in.
+      const acquiredSlots = {};
+      if (typeof ARTIFACT_CATALOG !== 'undefined') {
+        for (const item of allItems) {
+          const def = ARTIFACT_CATALOG[item.typeId];
+          if (def?.equipSlot) acquiredSlots[def.equipSlot] = true;
+        }
+      }
+
+      // equippedTiers: current tier of each equipped item.
+      const equippedTiers = {};
+      for (const [slot, item] of Object.entries(labState.equipped || {})) {
+        if (item) equippedTiers[slot] = item.tier || 1;
+      }
+
+      return { acquiredSlots, equippedTiers };
+    } catch (_) {
+      return {};
+    }
   }
 
   _showPreRun() {
@@ -968,7 +1050,7 @@ class GameLoop {
         loreEl.style.display = '';
         loreEl.textContent = "The rumors speak of a legendary 'Panoptikum' hidden just beneath the upper crust. A quirky, marvelous museum, though long abandoned and stripped of its artifacts. If I can navigate these shifting ruins, it would make the perfect laboratory and sanctuary for my research.";
       } else if (pm.level >= 4) {
-        if (this._expeditionZone?.id === 'z01' && this._expeditionRunIdx === 0) {
+        if (this._expeditionZone?.depthId === 'depth1' && this._expeditionRunIdx === 0) {
           // First real expedition from the hub — first labyrinth only
           loreEl.style.display = '';
           loreEl.textContent = "The Panoptikum is secured, but its display cases are tragically bare. It is time to begin the real work. I will start with a short expedition into a promising, nearby sector of the crushed upper levels. Let's see what history the earth has swallowed here.";
@@ -1041,7 +1123,9 @@ class GameLoop {
 
     // Economy reset (resources carry no state between runs / retries)
     this._buildPhaseUnlocked = false;
-    this._playerCurrency     = 0;
+    this._buildMaterial     = 0;
+    this._runGoldBuffer     = 0;
+    this._runArtifactIds     = []; // reset per-run tracking (commit previous run's artifacts)
 
     // Hide build hint if it lingered from a previous Phase B
     if (this._buildHintVisible) {
@@ -1084,9 +1168,9 @@ class GameLoop {
         title: `Level ${pm.level} Complete`,
         won:   true,
         rows: [
-          ['Max Score',          maxScore],
+          ['Max XP',             maxScore],
           ['Penalty (off-path)', `−${penalty}`],
-          ['Run Score',          runScore],
+          ['Run XP',             runScore],
         ],
       });
     } else if (won) {
@@ -1100,14 +1184,30 @@ class GameLoop {
         const progressRow = labsAfter > 0
           ? ['Remaining', `${labsAfter} more ${labsAfter === 1 ? 'labyrinth' : 'labyrinths'}`]
           : ['Remaining', 'All labyrinths cleared ✓'];
+
+        // Generate expedition loot for this lab.
+        let lootRow = null;
+        if (typeof LootManager !== 'undefined' && typeof ARTIFACT_CATALOG !== 'undefined') {
+          const faction = this._expeditionZone.factionTheme ?? 'origin:archive';
+          const loot    = LootManager.generateLoot(labsDone, faction, this._buildInventorySummary());
+          if (loot) {
+            document.dispatchEvent(new CustomEvent('artifact:collected', {
+              detail: { typeId: loot.typeId, tier: loot.tier },
+            }));
+            const def = ARTIFACT_CATALOG[loot.typeId];
+            lootRow = ['Artifact Found', `${def?.name ?? loot.typeId} (T${loot.tier})`];
+          }
+        }
+
         this._setPostRunContent({
           title: labsAfter === 0 ? 'Expedition Complete!' : `Lab ${labsDone} / ${labsTotal} Complete`,
           won:   true,
           rows: [
             ['Difficulty Score', this._levelDifficultyScore],
             ['Time Bonus',       `+${timeBonus}`],
-            ['Lab Score',        runScore],
+            ['Lab XP',           runScore],
             progressRow,
+            ...(lootRow ? [lootRow] : []),
           ],
         });
       } else {
@@ -1117,7 +1217,7 @@ class GameLoop {
           rows: [
             ['Difficulty Score',  this._levelDifficultyScore],
             ['Time Bonus',        `+${timeBonus}`],
-            ['Run Score',         runScore],
+            ['Run XP',            runScore],
           ],
         });
       }
@@ -1128,17 +1228,36 @@ class GameLoop {
       this._setPostRunContent({
         title: loseTitle,
         won:   false,
-        rows: [['The Nemesis reached the goal.', ''], ['Run Score', 0]],
+        rows: [['The Nemesis reached the goal.', ''], ['Run XP', 0]],
       });
+
+      // Rollback all artifacts collected during this run — prevents farming by
+      // deliberately losing after picking up artifacts.
+      if (this._runArtifactIds.length) {
+        document.dispatchEvent(new CustomEvent('artifact:rollback', {
+          detail: { instanceIds: this._runArtifactIds },
+        }));
+        this._runArtifactIds = [];
+      }
     }
 
     if (won) {
       if (this._expeditionMode) {
-        this._expeditionScore += runScore;
+        this._expeditionXP += runScore;
       } else {
-        this.totalScore += runScore;
-        localStorage.setItem('hexmaze_totalscore', String(this.totalScore));
+        this.totalXP += runScore;
+        localStorage.setItem('hexmaze_totalscore', String(this.totalXP));
       }
+      // Flush meta-gold buffer to panoptikum
+      if (this._runGoldBuffer > 0) {
+        document.dispatchEvent(new CustomEvent('gold:earned', {
+          detail: { amount: this._runGoldBuffer },
+        }));
+        this._runGoldBuffer = 0;
+      }
+    } else {
+      // Gold is lost on a failed run (same as artifacts)
+      this._runGoldBuffer = 0;
     }
 
     // "Next Level" button label
@@ -1152,13 +1271,13 @@ class GameLoop {
       }
     }
 
-    // "Total Score" label — shows expedition running score during expedition
+    // "Total XP" label — shows expedition running XP during expedition
     const scoreLabelEl = document.getElementById('post-score-label');
     if (scoreLabelEl) {
-      scoreLabelEl.textContent = this._expeditionMode ? 'Expedition Score' : 'Total Score';
+      scoreLabelEl.textContent = this._expeditionMode ? 'Expedition XP' : 'Total XP';
     }
 
-    const scoreDisplay = this._expeditionMode ? this._expeditionScore : this.totalScore;
+    const scoreDisplay = this._expeditionMode ? this._expeditionXP : this.totalXP;
     const overlay = document.getElementById('post-run-overlay');
     if (overlay) {
       document.getElementById('post-total-score').textContent = scoreDisplay;
@@ -1280,18 +1399,21 @@ class GameLoop {
       panel.style.display = 'block';
 
       const btnB = document.getElementById('btn-place-blockade');
-      if (btnB) btnB.disabled = this._playerCurrency < 1;
+      if (btnB) btnB.disabled = this._buildMaterial < 1;
 
-      if (this._playerCurrency < 1) this._triggerHUDShake();
+      if (this._buildMaterial < 1) this._triggerHUDShake();
 
       const costEl = document.getElementById('build-currency-display');
-      if (costEl) costEl.textContent = `Currency: ${this._playerCurrency}`;
+      if (costEl) {
+        const matInfo = this._getBuildMaterialInfo();
+        costEl.textContent = `${matInfo.name}: ${this._buildMaterial}`;
+      }
     }
   }
 
   _placeBlockade() {
     const grid = this.activeIsland?.grid;
-    if (!grid || !this._buildTargetKey || this._playerCurrency < 1) return;
+    if (!grid || !this._buildTargetKey || this._buildMaterial < 1) return;
 
     const cell = grid.cells.get(this._buildTargetKey);
     if (!cell || cell.blockadeLevel > 0) return;
@@ -1311,7 +1433,7 @@ class GameLoop {
     }
 
     cell.blockadeLevel = 1;
-    this._playerCurrency -= 1;
+    this._buildMaterial -= 1;
     this._nemesis.requestRepath();
     this._fogDirty = true;
 
@@ -1323,6 +1445,15 @@ class GameLoop {
 
     this._closeBuildUI();
     this._updateHUD();
+  }
+
+  _getBuildMaterialInfo() {
+    const level = this.progression?.level ?? 1;
+    if (level <= 3)  return { name: 'Wooden Planks',           short: 'PLANKS', color: '#c8960a' };
+    if (level <= 6)  return { name: 'Scrap Metal',             short: 'SCRAP',  color: '#aababa' };
+    if (level <= 9)  return { name: 'Hardened Resin Chunks',   short: 'RESIN',  color: '#d4a020' };
+    if (level <= 12) return { name: 'Pumice Boulders',         short: 'PUMICE', color: '#b07070' };
+    return           { name: 'Dense Bedrock Fragments',        short: 'ROCK',   color: '#8888aa' };
   }
 
   _showBuildMessage(text) {
@@ -1442,7 +1573,7 @@ class GameLoop {
         if (overlay) overlay.style.display = 'none';
         this.stop();
         const cb    = this._onExpeditionDone;
-        const score = this._expeditionScore;
+        const score = this._expeditionXP;
         this._expeditionMode   = false;
         this._expeditionZone   = null;
         this._onExpeditionDone = null;
@@ -1702,20 +1833,30 @@ class GameLoop {
       const cell = grid.cells.get(ck);
       if (cell) {
         if (cell.hasCurrency && cell.currencyAmount > 0) {
+          // Gold is now meta-currency: collected into buffer, added to panoptikumGold on success
           const amt = cell.currencyAmount;
-          const isFirst = this._playerCurrency === 0;
-          this._playerCurrency += amt;
+          this._runGoldBuffer += amt;
           cell.hasCurrency = false; cell.currencyAmount = 0;
           this._fogDirty = true;
+          const { x: cx, y: cy } = HexMath.toPixel(cell.q, cell.r, this.cellSize);
+          this._floatingTexts.spawn(cx, cy, `+${amt} ⬡`);
+        }
+        if (cell.hasMaterial && cell.materialAmount > 0) {
+          const amt = cell.materialAmount;
+          const isFirst = this._buildMaterial === 0;
+          this._buildMaterial += amt;
+          cell.hasMaterial = false; cell.materialAmount = 0;
+          this._fogDirty = true;
+          const matInfo = this._getBuildMaterialInfo();
           if (isFirst && this.progression.level >= 4) {
-            this._showBuildMessage(`+${amt} Gold gesammelt! Baue damit Hindernisse am Ziel.`);
+            this._showBuildMessage(`+${amt} ${matInfo.name} — use at build spots!`);
           }
 
           // Floating "+N" text at the cell world position
           const { x: cx, y: cy } = HexMath.toPixel(cell.q, cell.r, this.cellSize);
-          this._floatingTexts.spawn(cx, cy, `+${amt}`);
+          this._floatingTexts.spawn(cx, cy, `+${amt} ${matInfo.short}`);
 
-          // Coin arc: cell world coords → HUD currency element (canvas coords)
+          // Arc: cell world coords → HUD currency element
           const startCX = (cx - this.cameraX) * this.cameraZoom + this.viewportW / 2;
           const startCY = (cy - this.cameraY) * this.cameraZoom + this.viewportH / 2;
           const hudEl = document.getElementById('hud-currency');
@@ -1993,13 +2134,20 @@ class GameLoop {
     if (el('hud-level'))      el('hud-level').textContent      = pm.level;
     if (el('hud-difficulty')) el('hud-difficulty').textContent = this._levelDifficultyScore;
     if (el('hud-sight'))      el('hud-sight').textContent      = this.sightRange >= 4 ? '∞' : this.sightRange;
-    const displayScore = this._expeditionMode ? this._expeditionScore : this.totalScore;
+    const displayScore = this._expeditionMode ? this._expeditionXP : this.totalXP;
     if (el('hud-total-score')) el('hud-total-score').textContent = displayScore;
 
-    // Currency
+    // Build material HUD (biome-dependent name and color)
     const cRow = el('hud-currency-row');
     if (cRow) cRow.style.display = this.progression.level >= 4 ? '' : 'none';
-    if (el('hud-currency')) el('hud-currency').textContent = this._playerCurrency;
+    const matInfo = this._getBuildMaterialInfo();
+    const lblEl = el('hud-currency-label');
+    if (lblEl) lblEl.textContent = matInfo.short;
+    const valEl = el('hud-currency');
+    if (valEl) {
+      valEl.textContent = this._buildMaterial;
+      valEl.style.color = matInfo.color;
+    }
 
     // Phase indicator (A / B / C)
     const phaseRow = el('hud-phase-row');

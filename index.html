@@ -62,6 +62,14 @@
     #btn-mode:hover { background: rgba(0,255,136,0.12); box-shadow: 0 0 14px rgba(0,255,136,0.4); }
     #btn-mode.active { background: rgba(0,255,136,0.18); box-shadow: 0 0 16px rgba(0,255,136,0.5); }
 
+    #btn-dev-mode {
+      background: transparent; border: 2px solid #ff8800; color: #ff8800;
+      border-radius: 6px; padding: 8px 14px; font-family: inherit; font-size: 0.75rem;
+      letter-spacing: 0.08em; cursor: pointer; text-transform: uppercase;
+      transition: background 0.15s, box-shadow 0.15s; opacity: 0.7;
+    }
+    #btn-dev-mode:hover { background: rgba(255,136,0,0.12); box-shadow: 0 0 12px rgba(255,136,0,0.5); opacity: 1; }
+
     /* ── Analysis controls ── */
     #controls {
       display: flex; flex-wrap: wrap; gap: 14px 22px; align-items: flex-end;
@@ -350,11 +358,13 @@
       to   { transform: translateY(-7px); }
     }
   </style>
+  <link rel="stylesheet" href="panoptikum.css">
 </head>
 <body>
   <div id="header">
     <h1>⬡ HEX MAZE</h1>
     <button id="btn-mode">Play Mode</button>
+    <button id="btn-dev-mode" title="Dev Mode: skip tutorial, max resources, unlock all">⚙ Dev</button>
   </div>
 
   <!-- Analysis Mode controls -->
@@ -420,15 +430,15 @@
         <span class="hud-value" id="hud-phase">—</span>
       </div>
       <div class="hud-row" id="hud-currency-row" style="display:none">
-        <span class="hud-label">GOLD ⬡</span>
-        <span class="hud-value gold" id="hud-currency">0</span>
+        <span class="hud-label" id="hud-currency-label">MATL</span>
+        <span class="hud-value" id="hud-currency">0</span>
       </div>
       <div class="hud-row" id="hud-peek-row" style="display:none">
         <span class="hud-label">PEEK</span>
         <span class="hud-value gold" id="hud-peek">—</span>
       </div>
       <div class="hud-row">
-        <span class="hud-label">SCORE</span>
+        <span class="hud-label">XP</span>
         <span class="hud-value gold" id="hud-total-score">0</span>
       </div>
     </div>
@@ -580,7 +590,7 @@
 
         <div class="overlay-section">
           <div class="overlay-kv">
-            <span class="key" id="post-score-label">Total Score</span>
+            <span class="key" id="post-score-label">Total XP</span>
             <span class="value gold" id="post-total-score">0</span>
           </div>
         </div>
@@ -595,12 +605,16 @@
   <script src="random.js"></script>
   <script src="hex-cell.js"></script>
   <script src="artifact-registry.js"></script>
+  <script src="expedition-maps.js"></script>
+  <script src="loot-manager.js"></script>
+  <script src="stats-manager.js"></script>
+  <script src="onboarding-manager.js"></script>
   <script src="hex-grid-generator.js"></script>
   <script src="hex-renderer.js"></script>
   <script src="player.js"></script>
   <script src="nemesis.js"></script>
-  <script src="expedition-maps.js"></script>
-  <script src="panoptikum.js"></script>
+  <script src="panoptikum-collection.js"></script>
+  <script src="panoptikum-ui.js"></script>
   <script src="game-loop.js"></script>
   <script>
     // ── State ──────────────────────────────────────────────────────────────────
@@ -769,6 +783,62 @@
     });
     document.getElementById('show-assist').addEventListener('change', e => {
       if (gameLoop) gameLoop.setShowMovementAssist(e.target.checked);
+    });
+
+    // ── Dev Mode ──────────────────────────────────────────────────────────────
+    document.getElementById('btn-dev-mode').addEventListener('click', () => {
+      if (!panoptikum || !panoptikum._collection) {
+        alert('Panoptikum not initialised yet — click Play Mode first.');
+        return;
+      }
+      const col = panoptikum._collection;
+
+      // localStorage flags — skip tutorial & transition
+      localStorage.setItem('hexmaze_tutorial_done', '1');
+      localStorage.setItem('hexmaze_panoptikum_restored', '1');
+
+      // Gold
+      col.state.panoptikumGold = 999999;
+
+      // Lab: purchased + max research + unlock all audience insight tiers
+      col.labState.purchased = true;
+      col.labState.research  = 999999;
+      if (!col.labState.audienceInsight) col.labState.audienceInsight = {};
+      for (let t = 1; t <= 10; t++) col.labState.audienceInsight[t] = true;
+      if (!col.labState.unlockedKnowledge) col.labState.unlockedKnowledge = {};
+
+      // Market: mark all upgrades as purchased
+      const allUpgradeIds = (PanoptikumCollection.MARKET_UPGRADES || []).map(u => u.id);
+      for (const id of allUpgradeIds) col.marketState.upgrades[id] = true;
+      // stockroomI expands slots to 3
+      if (!col.marketState.slots[2]) col.marketState.slots[2] = null;
+
+      // Expedition maps: unlock all 60 zones (d1z01–d5z12) in persisted state
+      const allZoneIds = [
+        'd1z01','d1z02','d1z03','d1z04','d1z05','d1z06','d1z07','d1z08','d1z09','d1z10','d1z11','d1z12',
+        'd2z01','d2z02','d2z03','d2z04','d2z05','d2z06','d2z07','d2z08','d2z09','d2z10','d2z11','d2z12',
+        'd3z01','d3z02','d3z03','d3z04','d3z05','d3z06','d3z07','d3z08','d3z09','d3z10','d3z11','d3z12',
+        'd4z01','d4z02','d4z03','d4z04','d4z05','d4z06','d4z07','d4z08','d4z09','d4z10','d4z11','d4z12',
+        'd5z01','d5z02','d5z03','d5z04','d5z05','d5z06','d5z07','d5z08','d5z09','d5z10','d5z11','d5z12',
+      ];
+      expeditionMaps._state.availableIds = [...allZoneIds];
+      expeditionMaps._state.completedIds = [...allZoneIds];
+      expeditionMaps._saveState();
+      // Apply state to zone objects and derive MACRO_DEPTHS statuses
+      expeditionMaps._applyState();
+      // Rebuild both SVGs so the new statuses are reflected immediately
+      expeditionMaps._buildMacroSVG();
+      expeditionMaps._rebuildMicroSVG();
+
+      // Persist
+      col._save();
+      col._saveLab();
+      col._saveMarket();
+      if (typeof StatsManager !== 'undefined') StatsManager.recalculateAll();
+
+      // Switch to hub
+      if (currentMode !== 'analysis') enterAnalysisMode();
+      panoptikum.showHub(startExpeditionFlow);
     });
 
     // ── Boot ───────────────────────────────────────────────────────────────────

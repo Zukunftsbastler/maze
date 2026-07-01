@@ -171,41 +171,56 @@ const MACRO_DEPTHS = [
     id: 'depth1', y: 0, h: 550, status: 'available',
     name: 'Depth I — The Outer Vaults',
     lore: 'The uppermost chambers of the Labyrinth, once used by merchants to store surplus spice and grain. The air smells of dried herbs and mold. Strange markings on the walls hint that others have passed through — recently.',
-    microMap: 'ASSETS/LEVEL_MAPS/Level01.png',
+    microMap:    'ASSETS/LEVEL_MAPS/Level01.png',
+    schematicMap:'ASSETS/LEVEL_MAPS/Level01_map.png',
+    mapWidth: 2816, mapHeight: 1536,
   },
   {
     id: 'depth2', y: 550, h: 550, status: 'locked',
     name: 'Depth II — The Brackish Halls',
     lore: 'Ancient cisterns half-flooded with stagnant water the colour of rust. The locals refuse to speak of what dwells in the brackish dark. Only those who have mastered the Outer Vaults dare descend.',
+    microMap:    'ASSETS/LEVEL_MAPS/Level02.png',
+    schematicMap:'ASSETS/LEVEL_MAPS/Level02_map.png',
+    mapWidth: 2752, mapHeight: 1536,
   },
   {
     id: 'depth3', y: 1100, h: 550, status: 'locked',
     name: 'Depth III — The Amber Warrens',
     lore: 'Tunnels coated in resinous amber — the hardened breath of some ancient creature. Fossils of unknown forms are embedded in the walls. Time moves differently here.',
+    microMap:    'ASSETS/LEVEL_MAPS/Level03.png',
+    schematicMap:'ASSETS/LEVEL_MAPS/Level03_map copy.png',
+    mapWidth: 2816, mapHeight: 1536,
   },
   {
     id: 'depth4', y: 1650, h: 550, status: 'locked',
     name: 'Depth IV — The Smoldering Deep',
     lore: 'The rock itself radiates heat. Veins of molten material pulse through cracks in the stone. Whatever lies at the centre of this place has been burning for a very long time.',
+    microMap:    'ASSETS/LEVEL_MAPS/Level04.png',
+    schematicMap:'ASSETS/LEVEL_MAPS/Level04_map.png',
+    mapWidth: 2816, mapHeight: 1536,
   },
   {
     id: 'depth5', y: 2200, h: 552, status: 'locked',
     name: 'Depth V — The Null Core',
     lore: 'No cartographer has returned from the lowest depth. Expedition logs stop mid-sentence. The Null Core does not appear on any official map. You are on your own.',
+    microMap:    'ASSETS/LEVEL_MAPS/Level05.png',
+    schematicMap:'ASSETS/LEVEL_MAPS/Level05_map.png',
+    mapWidth: 2752, mapHeight: 1536,
   },
 ];
 
-// ── Micro Map Data ─────────────────────────────────────────────────────────────
-// Level01.png: 2816 × 1536  — 12 isometric expedition zones.
+// ── Expedition Zone Data ───────────────────────────────────────────────────────
 //
-// Visual order: top-left → top-right, then middle row, then bottom row.
-// Only z01 (Gargoyle's Overlook) starts available; all others locked.
-// Unlock chain: each completed zone unlocks the next in sequence.
-// Points are diamond placeholders — swap with precise SVG polygon traces later.
-
-function _diamond(cx, cy, w, h) {
-  return `${cx},${cy - h} ${cx + w},${cy} ${cx},${cy + h} ${cx - w},${cy}`;
-}
+// 12 zones per depth (4 cols × 3 rows), each exactly 1/4 of image width × 1/3 of height.
+// mapRect coords are in each depth's image pixel space:
+//   2816-wide maps (L01,L03,L04): cols at 0,704,1408,2112; rows at 0,512,1024
+//   2752-wide maps (L02,L05):     cols at 0,688,1376,2064; rows at 0,512,1024
+//
+// Unlock model (adjacency-based):
+//   • Fresh start: only d1z01 is available.
+//   • Completing or aborting zone Z unlocks all 4-directionally adjacent locked zones
+//     within the same depth (the map is always fully visible; only selection is gated).
+//   • First completion in depth N unlocks d{N+1}z01 (entry to next depth).
 
 function _aggregateRadii(startRadius, mazeCount) {
   return mazeCount * startRadius + (mazeCount * (mazeCount - 1)) / 2;
@@ -221,124 +236,596 @@ function _difficultyScore(zone) {
   return Math.round(base * peekMult * genMult * fowMult);
 }
 
-// Linear unlock chain — completing zone N unlocks zone N+1.
-const EXPEDITION_UNLOCK_CHAIN = [
-  'z01','z02','z03','z04','z05','z06','z07','z08','z09','z10','z11','z12',
-];
-
 const EXPEDITION_ZONES = [
-  // ── Top row (named per visual map, left → right) ──────────────────────────────
 
-  // Top-left: gargoyle statue
+  // ── Depth I — The Outer Vaults  (Level01.png 2816×1536) ──────────────────────
+  // Guild storage, collapsed merchant quarter, brackish underbelly.
+  // Each zone: 704 × 512 px.
+
+  // Row 1 — Upper tier: fortified towers and archway gates
   {
-    id: 'z01', status: 'locked',
-    name: "Gargoyle's Overlook",
-    points: _diamond(340, 270, 200, 120),
+    id: 'd1z01', status: 'locked', depthId: 'depth1',
+    name: "The Gatewarden's Narthex",
+    factionTheme: 'origin:custodian',
+    mapRect: { x: 0, y: 0, w: 704, h: 512 },
     mazeCount: 1, startRadius: 3,
     mapPreviewTime: 2, generosityFactor: 4, sightRange: 4,
     expectedArtifact: 'A carved obsidian eye — the pupil follows sources of light.',
   },
-  // Top-left-center: bookshelves and scattered tomes
   {
-    id: 'z02', status: 'locked',
-    name: 'The Ruined Archive',
-    points: _diamond(900, 250, 210, 125),
+    id: 'd1z02', status: 'locked', depthId: 'depth1',
+    name: 'The Corbelled Stacks',
+    factionTheme: 'origin:archive',
+    mapRect: { x: 704, y: 0, w: 704, h: 512 },
     mazeCount: 2, startRadius: 3,
     mapPreviewTime: 2, generosityFactor: 4, sightRange: 4,
-    expectedArtifact: 'A water-damaged ledger — one page is written in tomorrow\'s date.',
+    expectedArtifact: "A water-damaged ledger — one page is written in tomorrow's date.",
   },
-  // Top-center-right: crushed under broken wooden support beam
   {
-    id: 'z03', status: 'locked',
-    name: 'The Splintered Niche',
-    points: _diamond(1555, 262, 205, 122),
-    mazeCount: 2, startRadius: 4,
-    mapPreviewTime: 1, generosityFactor: 4, sightRange: 4,
-    expectedArtifact: 'A splinter of load-bearing timber — still warm, as if recently alive.',
+    id: 'd1z03', status: 'locked', depthId: 'depth1',
+    name: 'The Fallen Rampart',
+    factionTheme: 'origin:blackwater',
+    mapRect: { x: 1408, y: 0, w: 704, h: 512 },
+    mazeCount: 1, startRadius: 3,
+    mapPreviewTime: 2, generosityFactor: 4, sightRange: 4,
+    expectedArtifact: 'A vial of glowing green fluid — it moves as if alive.',
+  },
+  {
+    id: 'd1z04', status: 'locked', depthId: 'depth1',
+    name: 'The Sentinel Keep',
+    factionTheme: 'origin:custodian',
+    mapRect: { x: 2112, y: 0, w: 704, h: 512 },
+    mazeCount: 2, startRadius: 3,
+    mapPreviewTime: 2, generosityFactor: 4, sightRange: 4,
+    expectedArtifact: "A sentinel's bronze badge — the inscription changes each time you read it.",
   },
 
-  // ── Bottom row (named per visual map, left → right) ───────────────────────────
-
-  // Bottom-left: barrels of spice
+  // Row 2 — Middle tier: inner chambers and trade halls
   {
-    id: 'z04', status: 'locked',
-    name: "Spice Merchant's Cellar",
-    points: _diamond(400, 1248, 200, 120),
-    mazeCount: 3, startRadius: 4,
+    id: 'd1z05', status: 'locked', depthId: 'depth1',
+    name: 'The Stone Anteroom',
+    factionTheme: 'origin:archive',
+    mapRect: { x: 0, y: 512, w: 704, h: 512 },
+    mazeCount: 2, startRadius: 3,
+    mapPreviewTime: 2, generosityFactor: 4, sightRange: 4,
+    expectedArtifact: 'A stone key that fits no known lock — but every lock leans towards it.',
+  },
+  {
+    id: 'd1z06', status: 'locked', depthId: 'depth1',
+    name: 'The Sunken Hall',
+    factionTheme: 'origin:blackwater',
+    mapRect: { x: 704, y: 512, w: 704, h: 512 },
+    mazeCount: 2, startRadius: 3,
+    mapPreviewTime: 2, generosityFactor: 4, sightRange: 4,
+    expectedArtifact: 'A shard of black mirror that shows the room as it was a century ago.',
+  },
+  {
+    id: 'd1z07', status: 'locked', depthId: 'depth1',
+    name: 'The Passage Ward',
+    factionTheme: 'origin:archive',
+    mapRect: { x: 1408, y: 512, w: 704, h: 512 },
+    mazeCount: 3, startRadius: 3,
+    mapPreviewTime: 2, generosityFactor: 4, sightRange: 4,
+    expectedArtifact: 'A roll of parchment sealed with wax — the seal re-forms each time you break it.',
+  },
+  {
+    id: 'd1z08', status: 'locked', depthId: 'depth1',
+    name: 'The Eastern Gallery',
+    factionTheme: 'origin:custodian',
+    mapRect: { x: 2112, y: 512, w: 704, h: 512 },
+    mazeCount: 2, startRadius: 3,
+    mapPreviewTime: 2, generosityFactor: 4, sightRange: 4,
+    expectedArtifact: 'A copper bell with no clapper — yet it rings in silence.',
+  },
+
+  // Row 3 — Lower tier: drainage tunnels and undercroft
+  {
+    id: 'd1z09', status: 'locked', depthId: 'depth1',
+    name: "The Cooper's Cellar",
+    factionTheme: 'origin:blackwater',
+    mapRect: { x: 0, y: 1024, w: 704, h: 512 },
+    mazeCount: 3, startRadius: 3,
+    mapPreviewTime: 2, generosityFactor: 4, sightRange: 4,
+    expectedArtifact: 'A barrel stave wrapped in binding runes — the runes slowly crawl.',
+  },
+  {
+    id: 'd1z10', status: 'locked', depthId: 'depth1',
+    name: "The Merchant's Drain",
+    factionTheme: 'origin:blackwater',
+    mapRect: { x: 704, y: 1024, w: 704, h: 512 },
+    mazeCount: 2, startRadius: 3,
+    mapPreviewTime: 2, generosityFactor: 4, sightRange: 4,
+    expectedArtifact: "A merchant's coin with the same face on both sides.",
+  },
+  {
+    id: 'd1z11', status: 'locked', depthId: 'depth1',
+    name: 'The Seeping Conduit',
+    factionTheme: 'origin:blackwater',
+    mapRect: { x: 1408, y: 1024, w: 704, h: 512 },
+    mazeCount: 3, startRadius: 3,
+    mapPreviewTime: 2, generosityFactor: 4, sightRange: 4,
+    expectedArtifact: 'A vial of sewer water — perfectly clear and perfectly still.',
+  },
+  {
+    id: 'd1z12', status: 'locked', depthId: 'depth1',
+    name: 'The Irongate Keep',
+    factionTheme: 'origin:custodian',
+    mapRect: { x: 2112, y: 1024, w: 704, h: 512 },
+    mazeCount: 3, startRadius: 3,
+    mapPreviewTime: 2, generosityFactor: 4, sightRange: 4,
+    expectedArtifact: 'An iron portcullis key — impossibly heavy for its size.',
+  },
+
+  // ── Depth II — The Brackish Halls  (Level02.png 2752×1536) ───────────────────
+  // Hexagonal cisterns, crystal veins, magma pools and iron wards.
+  // Each zone: 688 × 512 px.
+
+  // Row 1 — Upper tier: green glow, hex structures, iron towers
+  {
+    id: 'd2z01', status: 'locked', depthId: 'depth2',
+    name: 'The Flotsam Entry',
+    factionTheme: 'origin:blackwater',
+    mapRect: { x: 0, y: 0, w: 688, h: 512 },
+    mazeCount: 2, startRadius: 3,
     mapPreviewTime: 2, generosityFactor: 2, sightRange: 4,
-    expectedArtifact: 'A sealed ceramic jar — its contents shift and whisper in the dark.',
+    expectedArtifact: 'A lump of luminous slime — it pulses faintly when spoken to.',
   },
-  // Bottom-center: glowing green sewer pipe
   {
-    id: 'z05', status: 'locked',
-    name: 'The Green Drain',
-    points: _diamond(1165, 1262, 215, 128),
-    mazeCount: 3, startRadius: 5,
-    mapPreviewTime: 1, generosityFactor: 2, sightRange: 4,
-    expectedArtifact: 'Alchemical residue crystallised into an iridescent lens.',
+    id: 'd2z02', status: 'locked', depthId: 'depth2',
+    name: 'The Algal Vault',
+    factionTheme: 'origin:archive',
+    mapRect: { x: 688, y: 0, w: 688, h: 512 },
+    mazeCount: 3, startRadius: 3,
+    mapPreviewTime: 2, generosityFactor: 2, sightRange: 4,
+    expectedArtifact: 'A preserved fungal bloom — its spores spell a warning in the air.',
   },
-  // Bottom-right: iron cell gate
   {
-    id: 'z06', status: 'locked',
-    name: 'The Rusted Gate',
-    points: _diamond(1960, 1248, 210, 125),
-    mazeCount: 3, startRadius: 5,
-    mapPreviewTime: 1, generosityFactor: 2, sightRange: 4,
-    expectedArtifact: 'An iron key wound with rune-wire, teeth filed to an unknown lock.',
+    id: 'd2z03', status: 'locked', depthId: 'depth2',
+    name: 'The Cracked Cistern',
+    factionTheme: 'origin:custodian',
+    mapRect: { x: 1376, y: 0, w: 688, h: 512 },
+    mazeCount: 2, startRadius: 3,
+    mapPreviewTime: 2, generosityFactor: 2, sightRange: 4,
+    expectedArtifact: "A cistern tile etched with a map of somewhere that doesn't exist.",
+  },
+  {
+    id: 'd2z04', status: 'locked', depthId: 'depth2',
+    name: 'The Veil Gate',
+    factionTheme: 'origin:custodian',
+    mapRect: { x: 2064, y: 0, w: 688, h: 512 },
+    mazeCount: 3, startRadius: 3,
+    mapPreviewTime: 2, generosityFactor: 2, sightRange: 4,
+    expectedArtifact: 'A velvet-wrapped iron disc — it always falls edge-up.',
   },
 
-  // ── Middle row (placeholder rubble zones, left → right) ──────────────────────
-
+  // Row 2 — Middle tier: crystal formations and brackish channels
   {
-    id: 'z07', status: 'locked',
-    name: 'The Dusty Anteroom',
-    points: _diamond(175, 720, 148, 90),
-    mazeCount: 4, startRadius: 5,
+    id: 'd2z05', status: 'locked', depthId: 'depth2',
+    name: 'The Slick Causeway',
+    factionTheme: 'origin:blackwater',
+    mapRect: { x: 0, y: 512, w: 688, h: 512 },
+    mazeCount: 3, startRadius: 3,
+    mapPreviewTime: 1, generosityFactor: 2, sightRange: 4,
+    expectedArtifact: 'A bridge stone worn perfectly smooth by unseen feet.',
+  },
+  {
+    id: 'd2z06', status: 'locked', depthId: 'depth2',
+    name: 'The Crystal Antechamber',
+    factionTheme: 'origin:archive',
+    mapRect: { x: 688, y: 512, w: 688, h: 512 },
+    mazeCount: 3, startRadius: 3,
+    mapPreviewTime: 1, generosityFactor: 2, sightRange: 4,
+    expectedArtifact: 'A blue crystal shard that hums when near heat.',
+  },
+  {
+    id: 'd2z07', status: 'locked', depthId: 'depth2',
+    name: 'The Crystal Vein',
+    factionTheme: 'origin:archive',
+    mapRect: { x: 1376, y: 512, w: 688, h: 512 },
+    mazeCount: 4, startRadius: 3,
+    mapPreviewTime: 1, generosityFactor: 2, sightRange: 4,
+    expectedArtifact: 'A hexagonal crystal that shows a tiny landscape inside — clouds move.',
+  },
+  {
+    id: 'd2z08', status: 'locked', depthId: 'depth2',
+    name: 'The Brackish Hollow',
+    factionTheme: 'origin:blackwater',
+    mapRect: { x: 2064, y: 512, w: 688, h: 512 },
+    mazeCount: 3, startRadius: 3,
+    mapPreviewTime: 1, generosityFactor: 2, sightRange: 4,
+    expectedArtifact: 'A hollow nautical compass — the needle spins and never settles.',
+  },
+
+  // Row 3 — Lower tier: magma pools and iron grating
+  {
+    id: 'd2z09', status: 'locked', depthId: 'depth2',
+    name: 'The Algae Court',
+    factionTheme: 'origin:blackwater',
+    mapRect: { x: 0, y: 1024, w: 688, h: 512 },
+    mazeCount: 4, startRadius: 4,
+    mapPreviewTime: 1, generosityFactor: 2, sightRange: 4,
+    expectedArtifact: 'A mass of writhing algae preserved in glass — it has not died.',
+  },
+  {
+    id: 'd2z10', status: 'locked', depthId: 'depth2',
+    name: 'The Glowing Sump',
+    factionTheme: 'origin:blackwater',
+    mapRect: { x: 688, y: 1024, w: 688, h: 512 },
+    mazeCount: 3, startRadius: 4,
+    mapPreviewTime: 1, generosityFactor: 2, sightRange: 4,
+    expectedArtifact: 'A small lava stone that glows faintly — cool to the touch.',
+  },
+  {
+    id: 'd2z11', status: 'locked', depthId: 'depth2',
+    name: 'The Sunken Ward',
+    factionTheme: 'origin:custodian',
+    mapRect: { x: 1376, y: 1024, w: 688, h: 512 },
+    mazeCount: 4, startRadius: 4,
+    mapPreviewTime: 1, generosityFactor: 2, sightRange: 4,
+    expectedArtifact: "A warden's ledger soaked in brine — entries in a cipher no one recognises.",
+  },
+  {
+    id: 'd2z12', status: 'locked', depthId: 'depth2',
+    name: 'The Iron Grate',
+    factionTheme: 'origin:custodian',
+    mapRect: { x: 2064, y: 1024, w: 688, h: 512 },
+    mazeCount: 4, startRadius: 4,
+    mapPreviewTime: 1, generosityFactor: 2, sightRange: 4,
+    expectedArtifact: 'An iron grating bolt — it opens locks by being held near them.',
+  },
+
+  // ── Depth III — The Amber Warrens  (Level03.png 2816×1536) ───────────────────
+  // Crystal-lit perimeter chambers, central blue array, lava seams below.
+  // Each zone: 704 × 512 px.
+
+  // Row 1 — Upper chambers: crystal formations and archways
+  {
+    id: 'd3z01', status: 'locked', depthId: 'depth3',
+    name: 'The Crystal Gallery',
+    factionTheme: 'origin:archive',
+    mapRect: { x: 0, y: 0, w: 704, h: 512 },
+    mazeCount: 3, startRadius: 4,
     mapPreviewTime: 1, generosityFactor: 2, sightRange: 3,
-    expectedArtifact: 'A brass monocle that lets you see through one wall per use.',
+    expectedArtifact: 'A prism that splits light into colours that have no name.',
   },
   {
-    id: 'z08', status: 'locked',
-    name: 'The Collapsed Vault',
-    points: _diamond(750, 712, 215, 128),
-    mazeCount: 4, startRadius: 6,
-    mapPreviewTime: 0, generosityFactor: 2, sightRange: 4,
-    expectedArtifact: 'Corroded coin stamped with a monarch whose name was erased from history.',
+    id: 'd3z02', status: 'locked', depthId: 'depth3',
+    name: 'The Gemstone Atrium',
+    factionTheme: 'origin:archive',
+    mapRect: { x: 704, y: 0, w: 704, h: 512 },
+    mazeCount: 4, startRadius: 4,
+    mapPreviewTime: 1, generosityFactor: 2, sightRange: 3,
+    expectedArtifact: 'A faceted gem that grows a tiny new face each time it is examined.',
   },
   {
-    id: 'z09', status: 'locked',
-    name: 'The Amber Passage',
-    points: _diamond(1395, 728, 218, 130),
-    mazeCount: 5, startRadius: 5,
+    id: 'd3z03', status: 'locked', depthId: 'depth3',
+    name: 'The Stone Altar',
+    factionTheme: 'origin:archive',
+    mapRect: { x: 1408, y: 0, w: 704, h: 512 },
+    mazeCount: 3, startRadius: 4,
+    mapPreviewTime: 1, generosityFactor: 2, sightRange: 3,
+    expectedArtifact: 'A stone altar fragment carved with a sacrificial calendar — set in the future.',
+  },
+  {
+    id: 'd3z04', status: 'locked', depthId: 'depth3',
+    name: 'The Ancient Portico',
+    factionTheme: 'origin:archive',
+    mapRect: { x: 2112, y: 0, w: 704, h: 512 },
+    mazeCount: 4, startRadius: 4,
+    mapPreviewTime: 1, generosityFactor: 2, sightRange: 3,
+    expectedArtifact: 'A column capital etched with a scene — the figures move when no one watches.',
+  },
+
+  // Row 2 — Middle: amber passages and central crystal array
+  {
+    id: 'd3z05', status: 'locked', depthId: 'depth3',
+    name: 'The Resin Passage',
+    factionTheme: 'origin:blackwater',
+    mapRect: { x: 0, y: 512, w: 704, h: 512 },
+    mazeCount: 4, startRadius: 4,
+    mapPreviewTime: 1, generosityFactor: 2, sightRange: 3,
+    expectedArtifact: 'A lump of amber containing a still-living insect.',
+  },
+  {
+    id: 'd3z06', status: 'locked', depthId: 'depth3',
+    name: 'The Cavern Forum',
+    factionTheme: 'origin:archive',
+    mapRect: { x: 704, y: 512, w: 704, h: 512 },
+    mazeCount: 4, startRadius: 4,
+    mapPreviewTime: 1, generosityFactor: 2, sightRange: 3,
+    expectedArtifact: 'A cathedral window fragment — the lead tracery rearranges each night.',
+  },
+  {
+    id: 'd3z07', status: 'locked', depthId: 'depth3',
+    name: 'The Amber Bridge',
+    factionTheme: 'origin:archive',
+    mapRect: { x: 1408, y: 512, w: 704, h: 512 },
+    mazeCount: 5, startRadius: 4,
+    mapPreviewTime: 1, generosityFactor: 2, sightRange: 3,
+    expectedArtifact: 'An amber bridge tile — its reflection shows another bridge, submerged.',
+  },
+  {
+    id: 'd3z08', status: 'locked', depthId: 'depth3',
+    name: 'The Shard Corridor',
+    factionTheme: 'origin:blackwater',
+    mapRect: { x: 2112, y: 512, w: 704, h: 512 },
+    mazeCount: 4, startRadius: 4,
+    mapPreviewTime: 1, generosityFactor: 2, sightRange: 3,
+    expectedArtifact: 'A crystal shard warm as a living hand — it cools when you say its name.',
+  },
+
+  // Row 3 — Lower tier: lava seams and ember zones
+  {
+    id: 'd3z09', status: 'locked', depthId: 'depth3',
+    name: 'The Cinder Terrace',
+    factionTheme: 'origin:blackwater',
+    mapRect: { x: 0, y: 1024, w: 704, h: 512 },
+    mazeCount: 5, startRadius: 4,
+    mapPreviewTime: 0, generosityFactor: 2, sightRange: 3,
+    expectedArtifact: 'A cinder brick that never fully cools — wrapped in cloth that has not burned.',
+  },
+  {
+    id: 'd3z10', status: 'locked', depthId: 'depth3',
+    name: 'The Ember Shelf',
+    factionTheme: 'origin:blackwater',
+    mapRect: { x: 704, y: 1024, w: 704, h: 512 },
+    mazeCount: 4, startRadius: 4,
+    mapPreviewTime: 0, generosityFactor: 2, sightRange: 3,
+    expectedArtifact: 'A fossilised ember — still radiates faint heat after millennia.',
+  },
+  {
+    id: 'd3z11', status: 'locked', depthId: 'depth3',
+    name: 'The Lava Seam',
+    factionTheme: 'origin:blackwater',
+    mapRect: { x: 1408, y: 1024, w: 704, h: 512 },
+    mazeCount: 5, startRadius: 4,
+    mapPreviewTime: 0, generosityFactor: 2, sightRange: 3,
+    expectedArtifact: 'A glass rod fused with volcanic glass — it vibrates near magma.',
+  },
+  {
+    id: 'd3z12', status: 'locked', depthId: 'depth3',
+    name: 'The Magma Vent',
+    factionTheme: 'origin:blackwater',
+    mapRect: { x: 2112, y: 1024, w: 704, h: 512 },
+    mazeCount: 5, startRadius: 4,
+    mapPreviewTime: 0, generosityFactor: 2, sightRange: 3,
+    expectedArtifact: 'A sealed ceramic vessel — something moves inside; it was sealed shut.',
+  },
+
+  // ── Depth IV — The Smoldering Deep  (Level04.png 2816×1536) ──────────────────
+  // Forge platforms above, magma flow band across centre, energy fields below.
+  // Each zone: 704 × 512 px.
+
+  // Row 1 — Upper platforms: forges and burial chambers
+  {
+    id: 'd4z01', status: 'locked', depthId: 'depth4',
+    name: 'The Funeral Platform',
+    factionTheme: 'origin:custodian',
+    mapRect: { x: 0, y: 0, w: 704, h: 512 },
+    mazeCount: 4, startRadius: 4,
     mapPreviewTime: 1, generosityFactor: 1, sightRange: 3,
-    expectedArtifact: 'Salt crystal containing a perfectly preserved living flame.',
+    expectedArtifact: 'A sarcophagus nameplate — the name carved on it changes with the weather.',
   },
   {
-    id: 'z10', status: 'locked',
-    name: 'The Crumbling Study',
-    points: _diamond(2025, 712, 210, 125),
-    mazeCount: 5, startRadius: 6,
+    id: 'd4z02', status: 'locked', depthId: 'depth4',
+    name: 'The Ossuary Shelf',
+    factionTheme: 'origin:custodian',
+    mapRect: { x: 704, y: 0, w: 704, h: 512 },
+    mazeCount: 5, startRadius: 4,
+    mapPreviewTime: 1, generosityFactor: 1, sightRange: 3,
+    expectedArtifact: 'A bone flute — playing it causes other instruments nearby to answer.',
+  },
+  {
+    id: 'd4z03', status: 'locked', depthId: 'depth4',
+    name: 'The Upper Forge',
+    factionTheme: 'origin:custodian',
+    mapRect: { x: 1408, y: 0, w: 704, h: 512 },
+    mazeCount: 4, startRadius: 4,
+    mapPreviewTime: 1, generosityFactor: 1, sightRange: 3,
+    expectedArtifact: 'A forge tong welded shut around nothing — something invisible is held between them.',
+  },
+  {
+    id: 'd4z04', status: 'locked', depthId: 'depth4',
+    name: 'The Crystal Annex',
+    factionTheme: 'origin:archive',
+    mapRect: { x: 2112, y: 0, w: 704, h: 512 },
+    mazeCount: 5, startRadius: 4,
+    mapPreviewTime: 1, generosityFactor: 1, sightRange: 3,
+    expectedArtifact: 'A crystal lens that shows things at the moment of their creation.',
+  },
+
+  // Row 2 — Magma flow band: perilous crossings
+  {
+    id: 'd4z05', status: 'locked', depthId: 'depth4',
+    name: 'The Rope Crossing',
+    factionTheme: 'origin:blackwater',
+    mapRect: { x: 0, y: 512, w: 704, h: 512 },
+    mazeCount: 5, startRadius: 4,
     mapPreviewTime: 0, generosityFactor: 1, sightRange: 2,
-    expectedArtifact: 'A bone flute that plays a different song each time — never the same twice.',
-  },
-
-  // ── Far edges (hardest zones) ─────────────────────────────────────────────────
-
-  {
-    id: 'z11', status: 'locked',
-    name: 'The Forgotten Wing',
-    points: _diamond(2195, 252, 200, 120),
-    mazeCount: 5, startRadius: 6,
-    mapPreviewTime: 0, generosityFactor: 1, sightRange: 1,
-    expectedArtifact: 'Dried spore cluster that glows faintly and hums a single note.',
+    expectedArtifact: 'A bridge chain link — too hot to hold yet cool enough not to burn.',
   },
   {
-    id: 'z12', status: 'locked',
-    name: 'The Flooded Cellars',
-    points: _diamond(2645, 724, 148, 90),
-    mazeCount: 6, startRadius: 6,
+    id: 'd4z06', status: 'locked', depthId: 'depth4',
+    name: 'The Fire Bridge',
+    factionTheme: 'origin:blackwater',
+    mapRect: { x: 704, y: 512, w: 704, h: 512 },
+    mazeCount: 5, startRadius: 4,
+    mapPreviewTime: 0, generosityFactor: 1, sightRange: 2,
+    expectedArtifact: 'A lava-cast footprint in obsidian — the foot that made it has six toes.',
+  },
+  {
+    id: 'd4z07', status: 'locked', depthId: 'depth4',
+    name: 'The Lava Overlook',
+    factionTheme: 'origin:blackwater',
+    mapRect: { x: 1408, y: 512, w: 704, h: 512 },
+    mazeCount: 6, startRadius: 4,
+    mapPreviewTime: 0, generosityFactor: 1, sightRange: 2,
+    expectedArtifact: 'A smoked glass bottle — the smoke inside forms recognisable shapes.',
+  },
+  {
+    id: 'd4z08', status: 'locked', depthId: 'depth4',
+    name: 'The Heat Exchanger',
+    factionTheme: 'origin:custodian',
+    mapRect: { x: 2112, y: 512, w: 704, h: 512 },
+    mazeCount: 5, startRadius: 4,
+    mapPreviewTime: 0, generosityFactor: 1, sightRange: 2,
+    expectedArtifact: 'A heat-sintered schematic — a blueprint for a machine with no purpose.',
+  },
+
+  // Row 3 — Lower tier: caldera rim and deep energy fields
+  {
+    id: 'd4z09', status: 'locked', depthId: 'depth4',
+    name: 'The Caldera Rim',
+    factionTheme: 'origin:blackwater',
+    mapRect: { x: 0, y: 1024, w: 704, h: 512 },
+    mazeCount: 6, startRadius: 5,
+    mapPreviewTime: 0, generosityFactor: 1, sightRange: 2,
+    expectedArtifact: "A caldera rim stone — it vibrates at the earth's core frequency.",
+  },
+  {
+    id: 'd4z10', status: 'locked', depthId: 'depth4',
+    name: 'The Magma Lake',
+    factionTheme: 'origin:blackwater',
+    mapRect: { x: 704, y: 1024, w: 704, h: 512 },
+    mazeCount: 5, startRadius: 5,
+    mapPreviewTime: 0, generosityFactor: 1, sightRange: 2,
+    expectedArtifact: 'A disc of cooled lava with a perfect blue circle embedded in its centre.',
+  },
+  {
+    id: 'd4z11', status: 'locked', depthId: 'depth4',
+    name: 'The Sunken Foundry',
+    factionTheme: 'origin:custodian',
+    mapRect: { x: 1408, y: 1024, w: 704, h: 512 },
+    mazeCount: 6, startRadius: 5,
+    mapPreviewTime: 0, generosityFactor: 1, sightRange: 2,
+    expectedArtifact: 'A foundry stamp that marks materials with symbols no one designed.',
+  },
+  {
+    id: 'd4z12', status: 'locked', depthId: 'depth4',
+    name: 'The Crystal Chasm',
+    factionTheme: 'origin:archive',
+    mapRect: { x: 2112, y: 1024, w: 704, h: 512 },
+    mazeCount: 6, startRadius: 5,
+    mapPreviewTime: 0, generosityFactor: 1, sightRange: 2,
+    expectedArtifact: 'A crystal from the deepest chasm — it sings a note too low to hear.',
+  },
+
+  // ── Depth V — The Null Core  (Level05.png 2752×1536) ─────────────────────────
+  // The Infernal Library: scorched reading halls above, lava void at the heart.
+  // Each zone: 688 × 512 px.
+
+  // Row 1 — Upper tier: ancient reading rooms
+  {
+    id: 'd5z01', status: 'locked', depthId: 'depth5',
+    name: 'The Reading Alcoves',
+    factionTheme: 'origin:archive',
+    mapRect: { x: 0, y: 0, w: 688, h: 512 },
+    mazeCount: 5, startRadius: 5,
+    mapPreviewTime: 0, generosityFactor: 1, sightRange: 2,
+    expectedArtifact: 'A reading stand whose surface holds the ghost of every book ever placed on it.',
+  },
+  {
+    id: 'd5z02', status: 'locked', depthId: 'depth5',
+    name: 'The Manuscript Hall',
+    factionTheme: 'origin:archive',
+    mapRect: { x: 688, y: 0, w: 688, h: 512 },
+    mazeCount: 6, startRadius: 5,
+    mapPreviewTime: 0, generosityFactor: 1, sightRange: 2,
+    expectedArtifact: 'A manuscript page that is always the same page regardless of which one you pull.',
+  },
+  {
+    id: 'd5z03', status: 'locked', depthId: 'depth5',
+    name: 'The Burning Index',
+    factionTheme: 'origin:archive',
+    mapRect: { x: 1376, y: 0, w: 688, h: 512 },
+    mazeCount: 5, startRadius: 5,
+    mapPreviewTime: 0, generosityFactor: 1, sightRange: 2,
+    expectedArtifact: 'An index card that shows entries no catalogue should contain.',
+  },
+  {
+    id: 'd5z04', status: 'locked', depthId: 'depth5',
+    name: "The Archivist's Last Stand",
+    factionTheme: 'origin:archive',
+    mapRect: { x: 2064, y: 0, w: 688, h: 512 },
+    mazeCount: 6, startRadius: 5,
+    mapPreviewTime: 0, generosityFactor: 1, sightRange: 2,
+    expectedArtifact: "A librarian's spectacles — through them, all text is legible regardless of language.",
+  },
+
+  // Row 2 — Middle tier: scorched stacks and lava threshold
+  {
+    id: 'd5z05', status: 'locked', depthId: 'depth5',
+    name: 'The Scorched Stacks',
+    factionTheme: 'origin:archive',
+    mapRect: { x: 0, y: 512, w: 688, h: 512 },
+    mazeCount: 6, startRadius: 5,
     mapPreviewTime: 0, generosityFactor: 1, sightRange: 1,
-    expectedArtifact: 'A perfectly spherical void — it absorbs light and makes no sound.',
+    expectedArtifact: 'A scorched book whose pages regenerate — the new text is not the original.',
+  },
+  {
+    id: 'd5z06', status: 'locked', depthId: 'depth5',
+    name: 'The Lava Threshold',
+    factionTheme: 'origin:blackwater',
+    mapRect: { x: 688, y: 512, w: 688, h: 512 },
+    mazeCount: 6, startRadius: 5,
+    mapPreviewTime: 0, generosityFactor: 1, sightRange: 1,
+    expectedArtifact: 'A lava-glass threshold stone — whoever crosses it backwards is seen in reverse.',
+  },
+  {
+    id: 'd5z07', status: 'locked', depthId: 'depth5',
+    name: 'The Null Chamber',
+    factionTheme: 'origin:archive',
+    mapRect: { x: 1376, y: 512, w: 688, h: 512 },
+    mazeCount: 7, startRadius: 5,
+    mapPreviewTime: 0, generosityFactor: 1, sightRange: 1,
+    expectedArtifact: 'A perfectly spherical void — it absorbs light and emits no sound.',
+  },
+  {
+    id: 'd5z08', status: 'locked', depthId: 'depth5',
+    name: 'The Fallen Codex',
+    factionTheme: 'origin:archive',
+    mapRect: { x: 2064, y: 512, w: 688, h: 512 },
+    mazeCount: 6, startRadius: 5,
+    mapPreviewTime: 0, generosityFactor: 1, sightRange: 1,
+    expectedArtifact: 'A codex with exactly one page — it records everything you have done.',
+  },
+
+  // Row 3 — Lower tier: lava shore and null terminus
+  {
+    id: 'd5z09', status: 'locked', depthId: 'depth5',
+    name: 'The Drowned Folio',
+    factionTheme: 'origin:archive',
+    mapRect: { x: 0, y: 1024, w: 688, h: 512 },
+    mazeCount: 7, startRadius: 5,
+    mapPreviewTime: 0, generosityFactor: 1, sightRange: 1,
+    expectedArtifact: 'A folio submerged in brine for centuries — the ink is brighter than when written.',
+  },
+  {
+    id: 'd5z10', status: 'locked', depthId: 'depth5',
+    name: 'The Lava Shore',
+    factionTheme: 'origin:blackwater',
+    mapRect: { x: 688, y: 1024, w: 688, h: 512 },
+    mazeCount: 6, startRadius: 5,
+    mapPreviewTime: 0, generosityFactor: 1, sightRange: 1,
+    expectedArtifact: 'A lava shore pebble — on each of its facets, a perfect miniature landscape.',
+  },
+  {
+    id: 'd5z11', status: 'locked', depthId: 'depth5',
+    name: 'The Null Core',
+    factionTheme: 'origin:archive',
+    mapRect: { x: 1376, y: 1024, w: 688, h: 512 },
+    mazeCount: 7, startRadius: 5,
+    mapPreviewTime: 0, generosityFactor: 1, sightRange: 1,
+    expectedArtifact: 'A null core sliver — it hovers an inch above any surface, untouchable.',
+  },
+  {
+    id: 'd5z12', status: 'locked', depthId: 'depth5',
+    name: 'The Void Terminus',
+    factionTheme: 'origin:archive',
+    mapRect: { x: 2064, y: 1024, w: 688, h: 512 },
+    mazeCount: 7, startRadius: 5,
+    mapPreviewTime: 0, generosityFactor: 1, sightRange: 1,
+    expectedArtifact: 'A void terminus marker — a rod that points toward wherever the labyrinth ends.',
   },
 ];
 
@@ -348,38 +835,34 @@ for (const z of EXPEDITION_ZONES) {
   z.difficultyScore = _difficultyScore(z);
 }
 
-// ── Rectangular zone positions on Level01.png (2816 × 1536) ──────────────────
-// Zones are laid out in a 3-row visual grid matching the image content.
-// Each entry: { x, y, w, h } in image-pixel coordinates.
-// These are placeholder rectangles — swap for precise values after visual inspection.
-//
-// Row 1 (top, y 0–512):   z01 z02 z03 z11
-// Row 2 (middle, y 512–1024): z07 z08 z09 z10 z12
-// Row 3 (bottom, y 1024–1536): z04 z05 z06
+// ── Zone adjacency (4×3 grid within each depth) ───────────────────────────────
+// Zone IDs: d{depth}z{01-12}  →  cols 0-3, rows 0-2
+// Two zones are adjacent if they share an edge (no diagonals).
 
-const ZONE_RECTS = {
-  z01:  { x: 0,    y: 0,    w: 704, h: 512 },   // Gargoyle's Overlook   — top-left statue
-  z02:  { x: 704,  y: 0,    w: 704, h: 512 },   // The Ruined Archive     — bookshelves
-  z03:  { x: 1408, y: 0,    w: 704, h: 512 },   // The Splintered Niche   — broken beam
-  z11:  { x: 2112, y: 0,    w: 704, h: 512 },   // The Forgotten Wing     — far top-right
-  z07:  { x: 0,    y: 512,  w: 560, h: 512 },   // The Dusty Anteroom
-  z08:  { x: 560,  y: 512,  w: 560, h: 512 },   // The Collapsed Vault
-  z09:  { x: 1120, y: 512,  w: 560, h: 512 },   // The Amber Passage
-  z10:  { x: 1680, y: 512,  w: 560, h: 512 },   // The Crumbling Study
-  z12:  { x: 2240, y: 512,  w: 576, h: 512 },   // The Flooded Cellars   — far middle-right
-  z04:  { x: 0,    y: 1024, w: 938, h: 512 },   // Spice Merchant's Cellar — bottom-left barrels
-  z05:  { x: 938,  y: 1024, w: 940, h: 512 },   // The Green Drain         — bottom-center sewer
-  z06:  { x: 1878, y: 1024, w: 938, h: 512 },   // The Rusted Gate         — bottom-right gate
-};
+function _zoneNeighborIds(zoneId) {
+  const m = zoneId.match(/^(d\d)z(\d+)$/);
+  if (!m) return [];
+  const prefix = m[1];                        // 'd1'
+  const n      = parseInt(m[2], 10);          // 1-12
+  const col    = (n - 1) % 4;                 // 0-3
+  const row    = Math.floor((n - 1) / 4);     // 0-2
+  const ids = [];
+  if (col > 0) ids.push(`${prefix}z${String(n - 1).padStart(2, '0')}`); // left
+  if (col < 3) ids.push(`${prefix}z${String(n + 1).padStart(2, '0')}`); // right
+  if (row > 0) ids.push(`${prefix}z${String(n - 4).padStart(2, '0')}`); // up
+  if (row < 2) ids.push(`${prefix}z${String(n + 4).padStart(2, '0')}`); // down
+  return ids;
+}
 
 // ── ExpeditionMaps ─────────────────────────────────────────────────────────────
 
 class ExpeditionMaps {
   constructor() {
-    this._onStart    = null;
-    this._activeZone = null;
-    this._overlay    = null;
-    this._state      = this._loadState();
+    this._onStart      = null;
+    this._activeZone   = null;
+    this._currentDepth = null;   // depth selected in micro view
+    this._overlay      = null;
+    this._state        = this._loadState();
     this._applyState();
     this._buildDOM();
   }
@@ -417,30 +900,35 @@ class ExpeditionMaps {
     const zone = EXPEDITION_ZONES.find(z => z.id === zoneId);
     if (!zone) return;
 
-    // Mark zone completed (re-play is allowed; completed stays accessible)
+    // Mark zone completed (re-play allowed; completed stays accessible)
     zone.status = 'completed';
     if (!this._state.completedIds.includes(zoneId)) {
       this._state.completedIds.push(zoneId);
     }
+    this._state.availableIds = (this._state.availableIds || []).filter(id => id !== zoneId);
 
-    // Unlock next zone in chain
-    const idx = EXPEDITION_UNLOCK_CHAIN.indexOf(zoneId);
-    if (idx !== -1 && idx + 1 < EXPEDITION_UNLOCK_CHAIN.length) {
-      const nextId   = EXPEDITION_UNLOCK_CHAIN[idx + 1];
-      const nextZone = EXPEDITION_ZONES.find(z => z.id === nextId);
-      if (nextZone && nextZone.status === 'locked') {
-        nextZone.status = 'available';
-        if (!this._state.availableIds.includes(nextId)) {
-          this._state.availableIds.push(nextId);
+    // Unlock 4-adjacent locked zones within the same depth
+    this._unlockAdjacentZones(zoneId);
+
+    // On first completion within this depth → unlock entry zone (z01) of next depth
+    const depthIdx = MACRO_DEPTHS.findIndex(d => d.id === zone.depthId);
+    if (depthIdx !== -1 && depthIdx + 1 < MACRO_DEPTHS.length) {
+      const nextDepth      = MACRO_DEPTHS[depthIdx + 1];
+      const nextDepthZones = EXPEDITION_ZONES.filter(z => z.depthId === nextDepth.id);
+      if (nextDepthZones.every(z => z.status === 'locked')) {
+        const entryId   = `d${depthIdx + 2}z01`;
+        const entryZone = EXPEDITION_ZONES.find(z => z.id === entryId);
+        if (entryZone) {
+          entryZone.status = 'available';
+          if (!this._state.availableIds.includes(entryId)) {
+            this._state.availableIds.push(entryId);
+          }
         }
       }
     }
 
-    // Accumulate global score
     this._state.globalScore = (this._state.globalScore || 0) + expeditionScore;
     this._saveState();
-
-    // Rebuild micro SVG to show updated statuses
     this._rebuildMicroSVG();
     this._updateScoreDisplays();
   }
@@ -453,16 +941,17 @@ class ExpeditionMaps {
     const zone = EXPEDITION_ZONES.find(z => z.id === zoneId);
     if (!zone) return;
 
-    // Don't downgrade a completed zone to aborted
     if (zone.status !== 'completed') {
       zone.status = 'aborted';
       if (!this._state.abortedIds) this._state.abortedIds = [];
       if (!this._state.abortedIds.includes(zoneId)) {
         this._state.abortedIds.push(zoneId);
       }
-      // Remove from available (it remains accessible via aborted status)
       this._state.availableIds = (this._state.availableIds || []).filter(id => id !== zoneId);
     }
+
+    // Unlock 4-adjacent locked zones even on abort (area was explored)
+    this._unlockAdjacentZones(zoneId);
 
     this._state.globalScore = (this._state.globalScore || 0) + penaltyScore;
     this._saveState();
@@ -473,7 +962,7 @@ class ExpeditionMaps {
   // ── State persistence ─────────────────────────────────────────────────────────
 
   static STATE_KEY     = 'hexmaze_expedition_state';
-  static STATE_VERSION = '4'; // incremented: added aborted state + rectangular zone rects
+  static STATE_VERSION = '6'; // adjacency unlock; fresh state starts with only d1z01
 
   _loadState() {
     try {
@@ -483,12 +972,12 @@ class ExpeditionMaps {
         if (parsed.version === ExpeditionMaps.STATE_VERSION) return parsed;
       }
     } catch (_) {}
-    // Fresh state: only z01 (Gargoyle's Overlook) is available
+    // Fresh state: only the entry zone of Depth I is available
     return {
       version:      ExpeditionMaps.STATE_VERSION,
       completedIds: [],
       abortedIds:   [],
-      availableIds: ['z01'],
+      availableIds: ['d1z01'],
       globalScore:  0,
     };
   }
@@ -500,7 +989,20 @@ class ExpeditionMaps {
     } catch (_) {}
   }
 
-  /** Apply loaded state onto EXPEDITION_ZONES statuses. */
+  /** Mark all 4-adjacent locked zones as available and persist the change. */
+  _unlockAdjacentZones(zoneId) {
+    for (const nid of _zoneNeighborIds(zoneId)) {
+      const nz = EXPEDITION_ZONES.find(z => z.id === nid);
+      if (nz && nz.status === 'locked') {
+        nz.status = 'available';
+        if (!this._state.availableIds.includes(nid)) {
+          this._state.availableIds.push(nid);
+        }
+      }
+    }
+  }
+
+  /** Apply loaded state onto EXPEDITION_ZONES and derive MACRO_DEPTHS statuses. */
   _applyState() {
     const { completedIds = [], abortedIds = [], availableIds = [] } = this._state;
     for (const z of EXPEDITION_ZONES) {
@@ -508,6 +1010,17 @@ class ExpeditionMaps {
       if (abortedIds.includes(z.id))   { z.status = 'aborted';   continue; }
       if (availableIds.includes(z.id)) { z.status = 'available'; continue; }
       z.status = 'locked';
+    }
+    // Derive MACRO_DEPTHS statuses from their zones
+    for (const depth of MACRO_DEPTHS) {
+      const zones = EXPEDITION_ZONES.filter(z => z.depthId === depth.id);
+      if (zones.length > 0 && zones.every(z => z.status === 'completed')) {
+        depth.status = 'completed';
+      } else if (zones.some(z => z.status !== 'locked')) {
+        depth.status = 'available';
+      } else {
+        depth.status = 'locked';
+      }
     }
   }
 
@@ -543,7 +1056,8 @@ class ExpeditionMaps {
           <div id="exp-micro-map-wrap">
             <svg id="exp-micro-svg"
                  viewBox="0 0 2816 1536"
-                 preserveAspectRatio="xMidYMid meet"></svg>
+                 preserveAspectRatio="xMidYMid meet"
+                 style="max-width:100%;max-height:100%;display:block"></svg>
           </div>
           <div id="exp-expedition-panel">
             <div id="exp-micro-panel-top">
@@ -602,7 +1116,7 @@ class ExpeditionMaps {
     });
 
     this._buildMacroSVG();
-    this._buildMicroSVG();
+    // Micro SVG is built lazily when the user selects a depth (_goMicro)
     this._updateScoreDisplays();
   }
 
@@ -618,15 +1132,19 @@ class ExpeditionMaps {
   }
 
   _goMicro(depth) {
+    this._currentDepth = depth;
+    this._activeZone   = null;
+
     document.getElementById('exp-macro-view').style.display = 'none';
     document.getElementById('exp-micro-view').style.display = 'flex';
     document.getElementById('exp-title').textContent         = depth.name;
     document.getElementById('btn-exp-back').style.visibility = 'visible';
     document.getElementById('exp-panel-content').style.display     = 'none';
     document.getElementById('exp-panel-placeholder').style.display = '';
-    this._activeZone = null;
     const btn = document.getElementById('btn-start-expedition');
     if (btn) btn.disabled = true;
+
+    this._buildMicroSVG(depth);
   }
 
   // ── Score display ─────────────────────────────────────────────────────────────
@@ -771,36 +1289,40 @@ class ExpeditionMaps {
 
   // ── View B: Micro SVG ─────────────────────────────────────────────────────────
 
-  _buildMicroSVG() {
+  _buildMicroSVG(depth) {
     const svg = document.getElementById('exp-micro-svg');
-    if (!svg) return;
-    const IW = 2816, IH = 1536;
+    if (!svg || !depth) return;
 
-    const revealedZones  = EXPEDITION_ZONES.filter(z => z.status === 'completed' || z.status === 'aborted');
-    const completedZones = EXPEDITION_ZONES.filter(z => z.status === 'completed');
+    const IW = depth.mapWidth  ?? 2816;
+    const IH = depth.mapHeight ?? 1536;
+    svg.setAttribute('viewBox', `0 0 ${IW} ${IH}`);
 
-    // Per-zone torn-paper displacement filters (unique seed per zone)
-    const tornFilters = EXPEDITION_ZONES.map((z, i) =>
+    // Only zones belonging to this depth
+    const depthZones     = EXPEDITION_ZONES.filter(z => z.depthId === depth.id);
+    const completedZones = depthZones.filter(z => z.status === 'completed');
+
+    // Per-zone torn-paper displacement filters (used for color-reveal of completed zones)
+    const tornFilters = completedZones.map((z, i) =>
       `<filter id="torn-${z.id}" x="-8%" y="-8%" width="116%" height="116%">
          <feTurbulence type="fractalNoise" baseFrequency="0.038 0.028"
-                       numOctaves="4" seed="${(i + 1) * 7}" result="noise"/>
+                       numOctaves="4" seed="${(depthZones.indexOf(z) + 1) * 7}" result="noise"/>
          <feDisplacementMap in="SourceGraphic" in2="noise" scale="26"
                             xChannelSelector="R" yChannelSelector="G"/>
        </filter>`
     ).join('');
 
-    // Map-hole mask: white everywhere → black torn holes where zones are revealed
-    const mapHoleRects = revealedZones.map(z => {
-      const r = ZONE_RECTS[z.id]; if (!r) return '';
-      return `<rect x="${r.x}" y="${r.y}" width="${r.w}" height="${r.h}"
-                    fill="black" filter="url(#torn-${z.id})"/>`;
-    }).join('');
-
     // Color-reveal mask: black everywhere → white torn windows for completed zones
     const colorRevealRects = completedZones.map(z => {
-      const r = ZONE_RECTS[z.id]; if (!r) return '';
+      const r = z.mapRect; if (!r) return '';
       return `<rect x="${r.x}" y="${r.y}" width="${r.w}" height="${r.h}"
                     fill="white" filter="url(#torn-${z.id})"/>`;
+    }).join('');
+
+    // Schematic mask: white everywhere → black for completed zones (let color photo show through)
+    const schematicHideRects = completedZones.map(z => {
+      const r = z.mapRect; if (!r) return '';
+      return `<rect x="${r.x}" y="${r.y}" width="${r.w}" height="${r.h}"
+                    fill="black" filter="url(#torn-${z.id})"/>`;
     }).join('');
 
     svg.innerHTML = `<defs>
@@ -820,62 +1342,59 @@ class ExpeditionMaps {
         <feGaussianBlur stdDeviation="7" result="b"/>
         <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
       </filter>
-      <mask id="map-hole-mask" maskContentUnits="userSpaceOnUse">
-        <rect x="0" y="0" width="${IW}" height="${IH}" fill="white"/>
-        ${mapHoleRects || ''}
-      </mask>
       <mask id="color-reveal-mask" maskContentUnits="userSpaceOnUse">
         <rect x="0" y="0" width="${IW}" height="${IH}" fill="black"/>
         ${colorRevealRects || ''}
       </mask>
+      <mask id="schematic-mask" maskContentUnits="userSpaceOnUse">
+        <rect x="0" y="0" width="${IW}" height="${IH}" fill="white"/>
+        ${schematicHideRects || ''}
+      </mask>
     </defs>`;
 
-    // ── Layer 1: Grayscale photo (base — visible for aborted zones) ──────────
+    // ── Layer 1: Grayscale photo — full image, always visible (no blackouts) ──
     svg.appendChild(svgEl('image', {
-      href: 'ASSETS/LEVEL_MAPS/Level01.png',
+      href: depth.microMap,
       x: 0, y: 0, width: IW, height: IH,
       filter: 'url(#mm-gray)',
     }));
 
-    // ── Layer 2: Full-color photo (masked to completed zones only) ───────────
+    // ── Layer 2: Full-color photo (torn reveal for completed zones) ───────────
     if (completedZones.length > 0) {
       const colorImg = svgEl('image', {
-        href: 'ASSETS/LEVEL_MAPS/Level01.png',
+        href: depth.microMap,
         x: 0, y: 0, width: IW, height: IH,
       });
       colorImg.setAttribute('mask', 'url(#color-reveal-mask)');
       svg.appendChild(colorImg);
     }
 
-    // ── Layer 3: Schematic map overlay (torn holes for revealed zones) ────────
-    const mapImg = svgEl('image', {
-      href: 'ASSETS/LEVEL_MAPS/Level01_map.png',
-      x: 0, y: 0, width: IW, height: IH,
-    });
-    if (revealedZones.length > 0) mapImg.setAttribute('mask', 'url(#map-hole-mask)');
-    svg.appendChild(mapImg);
+    // ── Layer 3: Schematic overlay (hides where color photo shows through) ────
+    if (depth.schematicMap) {
+      const mapImg = svgEl('image', {
+        href: depth.schematicMap,
+        x: 0, y: 0, width: IW, height: IH,
+      });
+      if (completedZones.length > 0) mapImg.setAttribute('mask', 'url(#schematic-mask)');
+      svg.appendChild(mapImg);
+    }
 
     // ── Layers 4–6: Overlays, highlights, hit areas ────────────────────────
-    for (const zone of EXPEDITION_ZONES) {
-      const r = ZONE_RECTS[zone.id];
+    for (const zone of depthZones) {
+      const r = zone.mapRect;
       if (!r) continue;
       const g  = document.createElementNS(SVG_NS, 'g');
       const cx = r.x + r.w / 2;
       const cy = r.y + r.h / 2;
 
       if (zone.status === 'locked') {
-        // Dark overlay on top of the map layer
+        // Light dim overlay — map stays readable; dashed border shows zone boundary
         g.appendChild(svgEl('rect', {
-          x: r.x, y: r.y, width: r.w, height: r.h, fill: 'rgba(0,0,0,0.82)',
+          x: r.x, y: r.y, width: r.w, height: r.h,
+          fill: 'rgba(0,0,15,0.28)',
+          stroke: 'rgba(80,110,140,0.45)', 'stroke-width': 2, 'stroke-dasharray': '14 9',
         }));
-        const dash = svgEl('text', {
-          x: cx, y: cy,
-          'text-anchor': 'middle', 'dominant-baseline': 'middle',
-          'font-family': 'Courier New, monospace', 'font-size': 28,
-          fill: 'rgba(60,85,105,0.60)',
-        });
-        dash.textContent = '—';
-        g.appendChild(dash);
+        // No interaction — locked zones are visible but not selectable
       } else {
         const isComp  = zone.status === 'completed';
         const isAbort = zone.status === 'aborted';
@@ -961,7 +1480,7 @@ class ExpeditionMaps {
   /** Rebuild micro SVG in place (called after state changes). */
   _rebuildMicroSVG() {
     this._activeZone = null;
-    this._buildMicroSVG();
+    if (this._currentDepth) this._buildMicroSVG(this._currentDepth);
     // Reset panel to placeholder
     const content = document.getElementById('exp-panel-content');
     const ph      = document.getElementById('exp-panel-placeholder');
@@ -1021,3 +1540,13 @@ class ExpeditionMaps {
     };
   }
 }
+
+// ── Faction loot-slot weights ─────────────────────────────────────────────────
+// Defines which equipment slots are more likely to drop for each faction theme.
+// Consumed by LootManager — lives here so adding new factions only requires
+// extending this object, not editing engine logic.
+window.FACTION_SLOT_BIAS = {
+  'origin:blackwater': { boots: 30, face: 30, hands: 20, pouch: 5,  tool: 5,  eyes: 5,  head: 5  },
+  'origin:custodian':  { tool: 30,  eyes: 30, head: 20,  boots: 5,  face: 5,  hands: 5, pouch: 5  },
+  'origin:archive':    { pouch: 30, tool: 30, eyes: 10,  head: 10,  face: 5,  hands: 5, boots: 5  },
+};

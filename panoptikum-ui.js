@@ -1,629 +1,14 @@
 'use strict';
 
-// ────────────────────────────────────────────────────────────────────────────────
-// panoptikum.js  –  Meta-Progression Hub + Global Persistent UI
-// ────────────────────────────────────────────────────────────────────────────────
+// panoptikum-ui.js — PanoptikumHub (DOM, drag-drop, sync)
+// Requires panoptikum-collection.js, artifact-registry.js, stats-manager.js, onboarding-manager.js
 
-(function injectPanoStyles() {
-  if (document.getElementById('pano-styles')) return;
-  const s = document.createElement('style');
-  s.id = 'pano-styles';
-  s.textContent = `
-    /* ── Panoptikum hub container ──────────────────────────────────────────── */
-    #panoptikum-hub {
-      position: fixed; inset: 0; z-index: 500;
-      background: #06060f;
-      display: none; flex-direction: column;
-      font-family: 'Courier New', monospace; color: #c8d6e5;
-      overflow: hidden;
-    }
-
-    /* ── Tutorial transition (dirty panoptikum) ────────────────────────────── */
-    #pano-transition {
-      position: absolute; inset: 0; z-index: 5;
-      display: none; align-items: center; justify-content: center;
-    }
-    #pano-dirty-img {
-      position: absolute; inset: 0;
-      width: 100%; height: 100%; object-fit: cover;
-      z-index: 1;
-    }
-    #pano-transition-panel {
-      position: relative; z-index: 2;
-      max-width: 520px; width: 90%;
-      background: rgba(6,6,15,0.86); backdrop-filter: blur(8px);
-      border: 1px solid rgba(184,153,114,0.38);
-      border-radius: 10px; padding: 26px 28px;
-      display: flex; flex-direction: column; gap: 20px; align-items: center;
-    }
-    #pano-transition-panel .lore-text {
-      border: none; background: none; padding: 0; margin: 0;
-      font-size: 0.88rem; text-align: left;
-    }
-    #btn-claim-sanctuary { width: 100%; }
-
-    /* ── Main views wrapper ────────────────────────────────────────────────── */
-    #pano-views {
-      position: absolute; inset: 0;
-    }
-
-    /* ── Panoptikum hub view (z-index layer stack per spec) ────────────────── */
-    #pano-view-hub {
-      position: absolute; inset: 0;
-      display: flex; align-items: flex-end;
-    }
-    #pano-bg {
-      position: absolute; inset: 0; z-index: 1;
-      background-image: url('ASSETS/PANOPTICUM/Panopticum.png');
-      background-size: cover; background-position: center;
-    }
-    #artifact-layer {
-      position: absolute; inset: 0; z-index: 10;
-      pointer-events: none;
-    }
-    #crowd-foreground {
-      position: absolute; bottom: 0; left: 0; right: 0;
-      height: 22%; z-index: 20; overflow: hidden;
-      pointer-events: none;
-    }
-
-    /* ── Fade screen for smooth view transitions ───────────────────────────── */
-    #pano-fade-screen {
-      position: fixed; inset: 0; z-index: 1050;
-      background: #06060f; opacity: 0;
-      pointer-events: none; transition: opacity 0.20s ease;
-    }
-    #pano-fade-screen.fading { opacity: 1; pointer-events: all; }
-
-    /* ── Global persistent UI bar ──────────────────────────────────────────── */
-    #global-ui {
-      position: fixed; top: 0; left: 0; right: 0; z-index: 1100;
-      height: 50px; display: none;
-      align-items: center; justify-content: space-between;
-      padding: 0 18px;
-      background: rgba(6,6,15,0.90); backdrop-filter: blur(10px);
-      border-bottom: 1px solid rgba(74,158,255,0.18);
-      font-family: 'Courier New', monospace;
-    }
-
-    /* Left panel */
-    #global-left { display: flex; align-items: center; gap: 20px; }
-    #global-score-block { display: flex; flex-direction: column; line-height: 1.15; }
-    #global-score-label {
-      font-size: 0.54rem; letter-spacing: 0.14em; color: #4a9eff;
-      text-transform: uppercase;
-    }
-    #global-score-val {
-      font-size: 1.05rem; font-weight: bold; color: #ffd23f;
-      text-shadow: 0 0 8px rgba(255,210,63,0.35);
-    }
-    #global-stats-placeholder {
-      font-size: 0.60rem; color: #1e2e3e; letter-spacing: 0.06em;
-      /* reserved for future statistics */
-    }
-
-    /* Right panel — navigation */
-    #global-right { display: flex; gap: 6px; }
-    .global-nav-btn {
-      background: transparent;
-      border: 1px solid rgba(74,158,255,0.25); color: #445566;
-      border-radius: 5px; padding: 5px 13px;
-      font-family: inherit; font-size: 0.70rem; letter-spacing: 0.09em;
-      cursor: pointer; text-transform: uppercase;
-      transition: background 0.14s, color 0.14s, border-color 0.14s,
-                  box-shadow 0.14s;
-      white-space: nowrap;
-    }
-    .global-nav-btn:hover {
-      background: rgba(74,158,255,0.10); color: #4a9eff;
-      border-color: rgba(74,158,255,0.55);
-    }
-    .global-nav-btn.active {
-      background: rgba(74,158,255,0.14); color: #4a9eff;
-      border-color: #4a9eff;
-      box-shadow: 0 0 8px rgba(74,158,255,0.25);
-    }
-
-    /* ── Offset expedition overlay below global bar ────────────────────────── */
-    body.pano-ui-active #expedition-overlay { top: 50px; }
-    body.pano-ui-active #expedition-overlay #exp-title-bar { display: none; }
-
-    /* ── Reset progress button (in global left panel) ──────────────────────── */
-    #btn-reset-progress {
-      background: transparent;
-      border: 1px solid rgba(255,68,102,0.22); color: #3a2030;
-      border-radius: 4px; padding: 3px 9px;
-      font-family: inherit; font-size: 0.62rem; letter-spacing: 0.09em;
-      cursor: pointer; text-transform: uppercase;
-      transition: background 0.14s, color 0.14s, border-color 0.14s;
-      white-space: nowrap;
-    }
-    #btn-reset-progress:hover {
-      background: rgba(255,68,102,0.10); color: #ff4466;
-      border-color: rgba(255,68,102,0.55);
-    }
-
-    /* ── Confirmation modal ─────────────────────────────────────────────────── */
-    #reset-confirm-overlay {
-      position: fixed; inset: 0; z-index: 1200;
-      background: rgba(6,6,15,0.80); backdrop-filter: blur(6px);
-      display: none; align-items: center; justify-content: center;
-    }
-    #reset-confirm-overlay.visible { display: flex; }
-    #reset-confirm-dialog {
-      background: rgba(12,10,22,0.98);
-      border: 1px solid rgba(255,68,102,0.40);
-      border-radius: 10px; padding: 28px 30px;
-      max-width: 420px; width: 90%;
-      font-family: 'Courier New', monospace; color: #c8d6e5;
-      text-align: center;
-      box-shadow: 0 0 40px rgba(255,68,102,0.12);
-    }
-    #reset-confirm-title {
-      font-size: 0.95rem; font-weight: bold; letter-spacing: 0.12em;
-      text-transform: uppercase; color: #ff4466;
-      text-shadow: 0 0 10px rgba(255,68,102,0.5);
-      margin-bottom: 14px;
-    }
-    #reset-confirm-body {
-      font-size: 0.78rem; color: #7a8899; line-height: 1.68;
-      margin-bottom: 22px;
-    }
-    #reset-confirm-body strong { color: #c8d6e5; }
-    #reset-confirm-btns {
-      display: flex; gap: 10px; justify-content: center;
-    }
-    #btn-reset-cancel {
-      flex: 1; padding: 9px 0;
-      background: transparent; border: 1.5px solid #334455; color: #556677;
-      border-radius: 6px; font-family: inherit; font-size: 0.80rem;
-      letter-spacing: 0.08em; cursor: pointer; text-transform: uppercase;
-      transition: background 0.14s, color 0.14s, border-color 0.14s;
-    }
-    #btn-reset-cancel:hover {
-      background: rgba(74,158,255,0.08); color: #4a9eff;
-      border-color: rgba(74,158,255,0.4);
-    }
-    #btn-reset-confirm {
-      flex: 1; padding: 9px 0;
-      background: rgba(255,68,102,0.10); border: 1.5px solid #ff4466;
-      color: #ff4466; border-radius: 6px; font-family: inherit;
-      font-size: 0.80rem; font-weight: bold; letter-spacing: 0.08em;
-      cursor: pointer; text-transform: uppercase;
-      transition: background 0.14s, box-shadow 0.14s;
-    }
-    #btn-reset-confirm:hover {
-      background: rgba(255,68,102,0.20);
-      box-shadow: 0 0 14px rgba(255,68,102,0.35);
-    }
-  `;
-  document.head.appendChild(s);
-})();
-
-// ── PanoArcManager — flying currency particle arcs ────────────────────────────
-// Renders on a fixed transparent canvas (z-index 1090, above views, below nav).
-// Gold arcs: small glowing coin circles.
-// Research arcs: green radial-gradient circles; area scales with size parameter.
-
-class PanoArcManager {
-  constructor() {
-    this._arcs     = [];
-    this._raf      = null;
-    this._lastTime = 0;
-    this._ctx      = null;
-    this._w = this._h = 0;
-    this._buildCanvas();
-    window.addEventListener('resize', () => this._resize());
-  }
-
-  _buildCanvas() {
-    const c = document.createElement('canvas');
-    c.id = 'pano-arc-canvas';
-    c.style.cssText = 'position:fixed;inset:0;width:100%;height:100%;pointer-events:none;z-index:1090;';
-    document.body.appendChild(c);
-    this._ctx = c.getContext('2d');
-    this._resize();
-  }
-
-  _resize() {
-    const c = this._ctx.canvas;
-    this._w = c.width  = window.innerWidth;
-    this._h = c.height = window.innerHeight;
-  }
-
-  // Spawn a gold coin arc from screen position (fx,fy) toward targetEl
-  spawnGold(fx, fy, targetEl) {
-    const r = targetEl?.getBoundingClientRect();
-    if (!r || r.width === 0) return;
-    this._add({ type: 'gold', fx, fy,
-      tx: r.left + r.width / 2, ty: r.top + r.height / 2, size: 1 });
-  }
-
-  // Spawn a research circle arc; size ≥ 1 scales circle area proportionally
-  spawnResearch(fx, fy, targetEl, size = 1) {
-    const r = targetEl?.getBoundingClientRect();
-    if (!r || r.width === 0) return;
-    this._add({ type: 'research', fx, fy,
-      tx: r.left + r.width / 2, ty: r.top + r.height / 2, size });
-  }
-
-  _add(arc) {
-    // Bezier control point: pull upward and slightly toward the horizontal midpoint,
-    // creating a smooth upward-then-inward curve regardless of source/target layout.
-    const mx  = arc.fx + (arc.tx - arc.fx) * 0.15;
-    const dy  = Math.abs(arc.fy - arc.ty);
-    arc.cx    = mx;
-    arc.cy    = Math.min(arc.fy, arc.ty) - Math.max(60, dy * 0.40);
-    arc.t     = 0;
-    arc.delay = Math.random() * 0.10; // slight stagger so simultaneous arcs fan out
-    this._arcs.push(arc);
-    if (!this._raf) {
-      this._lastTime = performance.now();
-      this._raf = requestAnimationFrame(t => this._tick(t));
-    }
-  }
-
-  _tick(now) {
-    const dt = Math.min(now - this._lastTime, 80) / 1000;
-    this._lastTime = now;
-    const ctx = this._ctx;
-    ctx.clearRect(0, 0, this._w, this._h);
-
-    const DURATION = 0.68;
-    for (const arc of this._arcs) {
-      if (arc.delay > 0) { arc.delay -= dt; continue; }
-      arc.t = Math.min(1, arc.t + dt / DURATION);
-      const t = arc.t;
-      const x = (1-t)*(1-t)*arc.fx + 2*(1-t)*t*arc.cx + t*t*arc.tx;
-      const y = (1-t)*(1-t)*arc.fy + 2*(1-t)*t*arc.cy + t*t*arc.ty;
-      // Fade out in the last 25 % of travel
-      const alpha = t > 0.75 ? Math.max(0, (1 - t) / 0.25) : 1;
-
-      ctx.save();
-      ctx.globalAlpha = alpha;
-
-      if (arc.type === 'gold') {
-        ctx.shadowColor = 'rgba(255,210,63,0.90)';
-        ctx.shadowBlur  = 12;
-        ctx.fillStyle   = '#ffd23f';
-        ctx.beginPath();
-        ctx.arc(x, y, 5, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.shadowBlur  = 0;
-        ctx.fillStyle   = 'rgba(255,255,200,0.55)';
-        ctx.beginPath();
-        ctx.arc(x - 1.5, y - 1.5, 2.2, 0, Math.PI * 2);
-        ctx.fill();
-      } else {
-        const radius = Math.max(5, 7 * Math.sqrt(Math.max(1, arc.size)));
-        const g = ctx.createRadialGradient(x, y, 0, x, y, radius);
-        g.addColorStop(0,   'rgba(190,255,225,0.95)');
-        g.addColorStop(0.45,'rgba(0,255,136,0.88)');
-        g.addColorStop(1,   'rgba(0,80,45,0)');
-        ctx.fillStyle   = g;
-        ctx.shadowColor = 'rgba(0,255,136,0.70)';
-        ctx.shadowBlur  = 14;
-        ctx.beginPath();
-        ctx.arc(x, y, radius, 0, Math.PI * 2);
-        ctx.fill();
-      }
-      ctx.restore();
-    }
-
-    this._arcs = this._arcs.filter(a => a.delay > 0 || a.t < 1);
-    if (this._arcs.length > 0) {
-      this._raf = requestAnimationFrame(t => this._tick(t));
-    } else {
-      this._raf = null;
-      ctx.clearRect(0, 0, this._w, this._h);
-    }
-  }
-}
-
-// ── PanoptikumCollection — persistent artifact state + passive income ──────────
-
-class PanoptikumCollection {
-  static STORAGE_KEY      = 'hexmaze_collection';
-  static LAB_STORAGE_KEY  = 'hexmaze_laboratory';
-  static PEDESTAL_COUNT   = 5;
-  static LAB_SLOT_COUNT   = 3;
-  static INCOME_INTERVAL_MS = 1_000; // smooth 1-second tick
-
-  // Research unlock costs per field
-  static UNLOCK_COSTS = { lore: 10, traits: 15, origin: 20, arcaneResonance: 50 };
-  static EQUIP_SLOT_TYPES = ['head', 'eyes', 'face', 'hands', 'tool', 'pouch', 'boots'];
-
-  constructor() {
-    this._incomeTimer = null;
-    this._onTickCb    = null;
-    this.state    = this._load();
-    this.labState = this._loadLab();
-    while (this.state.pedestals.length < PanoptikumCollection.PEDESTAL_COUNT) {
-      this.state.pedestals.push(null);
-    }
-    while (this.labState.slots.length < PanoptikumCollection.LAB_SLOT_COUNT) {
-      this.labState.slots.push(null);
-    }
-    if (!this.labState.equipped) {
-      this.labState.equipped = Object.fromEntries(
-        PanoptikumCollection.EQUIP_SLOT_TYPES.map(s => [s, null])
-      );
-    }
-  }
-
-  // ── Persistence ──────────────────────────────────────────────────────────────
-
-  _load() {
-    try {
-      const raw = localStorage.getItem(PanoptikumCollection.STORAGE_KEY);
-      if (raw) return JSON.parse(raw);
-    } catch (_) {}
-    return {
-      inventory:           [],
-      pedestals:           new Array(PanoptikumCollection.PEDESTAL_COUNT).fill(null),
-      panoptikumGold:      0,
-      lastIncomeTimestamp: Date.now(),
-    };
-  }
-
-  _save() {
-    try {
-      localStorage.setItem(PanoptikumCollection.STORAGE_KEY, JSON.stringify(this.state));
-    } catch (_) {}
-  }
-
-  // ── Artifact management ───────────────────────────────────────────────────────
-
-  addArtifact(typeId, tier = 1) {
-    const instance = ArtifactRegistry.createInstance(typeId, tier);
-    this.state.inventory.push(instance);
-    this._save();
-    return instance;
-  }
-
-  getItem(instanceId) {
-    return this.state.inventory.find(i => i.instanceId === instanceId) ?? null;
-  }
-
-  // Locate an item anywhere (inventory / pedestals / lab slots) and pull it out
-  _findAndRemoveItem(instanceId) {
-    // Check inventory
-    let item = this.state.inventory.find(i => i.instanceId === instanceId);
-    if (item) {
-      this.state.inventory = this.state.inventory.filter(i => i.instanceId !== instanceId);
-      return item;
-    }
-    // Check pedestals
-    for (let p = 0; p < this.state.pedestals.length; p++) {
-      if (this.state.pedestals[p]?.instanceId === instanceId) {
-        item = this.state.pedestals[p];
-        this.state.pedestals[p] = null;
-        item.state = 'inventory'; item.pedestalIndex = null;
-        return item;
-      }
-    }
-    // Check lab slots
-    for (let l = 0; l < this.labState.slots.length; l++) {
-      if (this.labState.slots[l]?.instanceId === instanceId) {
-        item = this.labState.slots[l];
-        this.labState.slots[l] = null;
-        item.state = 'inventory'; item.labSlotIndex = null;
-        return item;
-      }
-    }
-    // Check equipment slots
-    for (const slotType of PanoptikumCollection.EQUIP_SLOT_TYPES) {
-      if (this.labState.equipped[slotType]?.instanceId === instanceId) {
-        item = this.labState.equipped[slotType];
-        this.labState.equipped[slotType] = null;
-        item.state = 'inventory'; item.equipSlot = null;
-        return item;
-      }
-    }
-    return null;
-  }
-
-  // ── Equipment management ──────────────────────────────────────────────────────
-
-  equipArtifact(instanceId, slotType) {
-    const def = ArtifactRegistry.getById(this._resolveTypeId(instanceId));
-    if (!def || def.equipSlot !== slotType) return false;
-    const item = this._findAndRemoveItem(instanceId);
-    if (!item) return false;
-    const existing = this.labState.equipped[slotType];
-    if (existing) {
-      existing.state = 'inventory'; existing.equipSlot = null;
-      if (!this.state.inventory.find(i => i.instanceId === existing.instanceId))
-        this.state.inventory.push(existing);
-    }
-    item.state = 'equipped'; item.equipSlot = slotType;
-    this.labState.equipped[slotType] = item;
-    this._save(); this._saveLab();
-    return true;
-  }
-
-  unequipSlot(slotType) {
-    const item = this.labState.equipped[slotType];
-    if (!item) return;
-    item.state = 'inventory'; item.equipSlot = null;
-    this.labState.equipped[slotType] = null;
-    this.state.inventory.push(item);
-    this._save(); this._saveLab();
-  }
-
-  getEquippedItems() { return { ...this.labState.equipped }; }
-
-  _resolveTypeId(instanceId) {
-    let item = this.state.inventory.find(i => i.instanceId === instanceId);
-    if (!item) item = this.state.pedestals.find(s => s?.instanceId === instanceId);
-    if (!item) item = this.labState.slots.find(s => s?.instanceId === instanceId);
-    if (!item) {
-      for (const t of PanoptikumCollection.EQUIP_SLOT_TYPES) {
-        if (this.labState.equipped[t]?.instanceId === instanceId) { item = this.labState.equipped[t]; break; }
-      }
-    }
-    return item?.typeId ?? null;
-  }
-
-  // Build unlockedFields map keyed by typeId (used by ArtifactRegistry)
-  getUnlockedByTypeId() { return this.labState.unlockedFields; }
-
-  exhibit(instanceId, pedestalIndex) {
-    const item = this._findAndRemoveItem(instanceId);
-    if (!item) return;
-    // Return whatever was on that pedestal to inventory
-    const existing = this.state.pedestals[pedestalIndex];
-    if (existing) {
-      existing.state = 'inventory'; existing.pedestalIndex = null;
-      if (!this.state.inventory.find(i => i.instanceId === existing.instanceId))
-        this.state.inventory.push(existing);
-    }
-    item.state = 'exhibited'; item.pedestalIndex = pedestalIndex;
-    this.state.pedestals[pedestalIndex] = item;
-    this._save(); this._saveLab();
-  }
-
-  unexhibit(pedestalIndex) {
-    const item = this.state.pedestals[pedestalIndex];
-    if (!item) return;
-    item.state = 'inventory'; item.pedestalIndex = null;
-    this.state.pedestals[pedestalIndex] = null;
-    this.state.inventory.push(item);
-    this._save();
-  }
-
-  // ── Merge: 3 identical (typeId+tier) → 1 at tier+1 ─────────────────────────
-
-  checkMerge() {
-    const result = ArtifactRegistry.tryMerge(this.state.inventory);
-    if (!result) return null;
-    this.state.inventory = this.state.inventory.filter(i => !result.remove.includes(i.instanceId));
-    this.state.inventory.push(result.add);
-    this._save();
-    return { newTier: result.add.tier, typeId: result.add.typeId };
-  }
-
-  // ── Passive income ─────────────────────────────────────────────────────────
-
-  awardOfflineIncome() {
-    const now     = Date.now();
-    const elapsed = (now - (this.state.lastIncomeTimestamp ?? now)) / 1000;
-    const gpm     = ArtifactRegistry.calculatePassiveGPM(this.state.pedestals, this.getUnlockedByTypeId());
-    const earned  = (gpm / 60) * elapsed;
-    if (earned > 0) {
-      this.state.panoptikumGold      += earned;
-      this.state.lastIncomeTimestamp  = now;
-      this._save();
-    }
-  }
-
-  startIncomeTicker(onTick) {
-    this._onTickCb = onTick;
-    this._incomeTimer = setInterval(() => {
-      const gpm          = ArtifactRegistry.calculatePassiveGPM(this.state.pedestals, this.getUnlockedByTypeId());
-      const goldEarned   = (gpm / 60) * (PanoptikumCollection.INCOME_INTERVAL_MS / 1000);
-      if (goldEarned > 0) {
-        this.state.panoptikumGold     += goldEarned;
-        this.state.lastIncomeTimestamp = Date.now();
-        this._save();
-      }
-      const researchEarned = this.tickResearch();
-      if (this._onTickCb) this._onTickCb({ goldEarned, researchEarned });
-    }, PanoptikumCollection.INCOME_INTERVAL_MS);
-  }
-
-  stopIncomeTicker() {
-    if (this._incomeTimer) { clearInterval(this._incomeTimer); this._incomeTimer = null; }
-  }
-
-  // ── Lab persistence ───────────────────────────────────────────────────────────
-
-  _loadLab() {
-    try {
-      const raw = localStorage.getItem(PanoptikumCollection.LAB_STORAGE_KEY);
-      if (raw) return JSON.parse(raw);
-    } catch (_) {}
-    return {
-      purchased:             false,
-      research:              0,
-      slots:                 new Array(PanoptikumCollection.LAB_SLOT_COUNT).fill(null),
-      lastResearchTimestamp: Date.now(),
-      unlockedFields:        {},
-      equipped:              Object.fromEntries(PanoptikumCollection.EQUIP_SLOT_TYPES.map(s => [s, null])),
-    };
-  }
-
-  _saveLab() {
-    try {
-      localStorage.setItem(PanoptikumCollection.LAB_STORAGE_KEY, JSON.stringify(this.labState));
-    } catch (_) {}
-  }
-
-  // ── Lab artifact management ───────────────────────────────────────────────────
-
-  placeInLab(instanceId, slotIndex) {
-    const item = this._findAndRemoveItem(instanceId);
-    if (!item) return false;
-    // Return whatever was in that lab slot to inventory
-    const existing = this.labState.slots[slotIndex];
-    if (existing) {
-      existing.state = 'inventory'; existing.labSlotIndex = null;
-      if (!this.state.inventory.find(i => i.instanceId === existing.instanceId))
-        this.state.inventory.push(existing);
-    }
-    item.state = 'in_lab'; item.labSlotIndex = slotIndex;
-    this.labState.slots[slotIndex] = item;
-    this._save(); this._saveLab();
-    return true;
-  }
-
-  removeFromLab(slotIndex) {
-    const item = this.labState.slots[slotIndex];
-    if (!item) return;
-    item.state        = 'inventory';
-    item.labSlotIndex = null;
-    this.labState.slots[slotIndex] = null;
-    this.state.inventory.push(item);
-    this._save();
-    this._saveLab();
-  }
-
-  // ── Research generation (called from income ticker) ───────────────────────────
-
-  tickResearch() {
-    const now     = Date.now();
-    const elapsed = (now - (this.labState.lastResearchTimestamp ?? now)) / 1000;
-    let tierPoints = 0;
-    for (const s of this.labState.slots) { if (s) tierPoints += s.tier; }
-    const rpm    = tierPoints;
-    const earned = (rpm / 60) * elapsed;
-    if (earned > 0) {
-      this.labState.research              += earned;
-      this.labState.lastResearchTimestamp  = now;
-      this._saveLab();
-    }
-    return earned; // callers use this to drive arc animations
-  }
-
-  // ── Field unlock ──────────────────────────────────────────────────────────────
-
-  unlockField(instanceId, field) {
-    const cost = PanoptikumCollection.UNLOCK_COSTS[field];
-    if (!cost || this.labState.research < cost) return false;
-    const typeId = this._resolveTypeId(instanceId) ?? instanceId;
-    this.labState.research -= cost;
-    if (!this.labState.unlockedFields[typeId])
-      this.labState.unlockedFields[typeId] = [];
-    if (!this.labState.unlockedFields[typeId].includes(field))
-      this.labState.unlockedFields[typeId].push(field);
-    this._saveLab();
-    return true;
-  }
-
-  isFieldUnlocked(instanceId, field) {
-    const typeId = this._resolveTypeId(instanceId) ?? instanceId;
-    return (this.labState.unlockedFields[typeId] || []).includes(field);
-  }
+function escapeHtml(s) {
+  return String(s ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
 }
 
 // ── PanoptikumHub ──────────────────────────────────────────────────────────────
@@ -668,6 +53,7 @@ class PanoptikumHub {
     this._el('pano-view-hub').classList.add('active');
     this._el('pano-view-lab')?.classList.remove('active');
     this._el('pano-view-equip')?.classList.remove('active');
+    this._el('pano-view-market')?.classList.remove('active');
     this._showGlobalUI();
     this._setNavActive('panoptikum');
     this._updateLabNavButton();
@@ -780,6 +166,55 @@ class PanoptikumHub {
               <div id="lab-inv-grid"></div>
             </div>
           </div>
+          <div id="lab-insight-section" style="display:none;">
+            <div class="lab-col-title">⚑ Audience Research</div>
+            <div id="lab-insight-help" style="font-size:0.72rem;color:#8899aa;margin-bottom:8px;">
+              Purchase a valuation survey to reveal the exhibition appeal of artifacts of that grade.
+            </div>
+            <div id="lab-insight-area"></div>
+          </div>
+          <div id="lab-crucible-section">
+            <div class="lab-col-title">⊗ Crucible — Destructive Analysis</div>
+            <div id="lab-crucible-row">
+              <div id="crucible-slot" class="crucible-slot">
+                <span class="crucible-slot-icon">⊗</span>
+              </div>
+              <div id="lab-crucible-info">
+                <div id="lab-crucible-help">
+                  Sacrifice an artifact to the Crucible. After the analysis period, its essence
+                  will unlock a <strong>global knowledge</strong> — a permanent bonus affecting
+                  all artifacts that share its tag.
+                </div>
+                <div id="lab-crucible-status"></div>
+                <div id="lab-crucible-btns" style="display:flex;gap:8px;flex-wrap:wrap;">
+                  <button class="btn-crucible" id="btn-crucible-cancel" style="display:none;">✕ Abort</button>
+                  <button class="btn-crucible" id="btn-crucible-collect" style="display:none;">✦ Collect Discovery</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <!-- View: Market -->
+        <div id="pano-view-market">
+          <div id="market-header">
+            <span id="market-header-title">✦ Antiquities Exchange</span>
+            <span id="market-header-sub">List artifacts for timed sales. Upgrades increase payouts and speed.</span>
+          </div>
+          <div id="market-content-row">
+            <div id="market-slots-col">
+              <div class="lab-col-title" style="font-size:0.68rem;letter-spacing:0.10em;color:#ffd23f;text-transform:uppercase;margin-bottom:6px;">Sale Slots</div>
+              <div id="market-slots-area"></div>
+              <div id="market-help-text">Drag an artifact here to list it. Sales complete automatically.</div>
+            </div>
+            <div id="market-upgrades-col">
+              <div class="lab-col-title" style="font-size:0.68rem;letter-spacing:0.10em;color:#ffd23f;text-transform:uppercase;margin-bottom:6px;">Shop Upgrades</div>
+              <div id="market-upgrades-area"></div>
+            </div>
+            <div id="market-inv-col">
+              <div class="lab-col-title" style="font-size:0.68rem;letter-spacing:0.10em;color:#c8d6e5;text-transform:uppercase;margin-bottom:6px;">Cabinet of Curiosities</div>
+              <div id="market-inv-grid"></div>
+            </div>
+          </div>
         </div>
         <!-- View: Equipment / Loadout -->
         <div id="pano-view-equip">
@@ -828,6 +263,7 @@ class PanoptikumHub {
       <div id="global-right">
         <button id="btn-nav-panoptikum"  class="global-nav-btn active">⌂ Panoptikum</button>
         <button id="btn-nav-laboratory"  class="global-nav-btn lab-locked">⚗ Laboratory</button>
+        <button id="btn-nav-market"      class="global-nav-btn market-locked">✦ Market</button>
         <button id="btn-nav-equipment"   class="global-nav-btn">⚔ Loadout</button>
         <button id="btn-nav-view-a"      class="global-nav-btn">⬡ World Map</button>
         <button id="btn-nav-view-b"      class="global-nav-btn">⚔ Expeditions</button>
@@ -840,6 +276,20 @@ class PanoptikumHub {
     });
     ui.querySelector('#btn-nav-laboratory').addEventListener('click', () => {
       this._onLabNavClick();
+    });
+    ui.querySelector('#btn-nav-market').addEventListener('click', () => {
+      OnboardingManager.trigger('seenMarket', {
+        title: 'The Antiquities Exchange',
+        icon: '✦',
+        lore: 'Word travels fast among the city\'s collectors. A booth in the Bourgeois Arcade awaits — but the right buyer takes time to find.',
+        rules: [
+          '<strong>List artifacts</strong> by dragging them into a Market slot.',
+          'Sales complete on a <strong>timer</strong> — check back for your gold.',
+          '<strong>Upgrades</strong> in the right column speed up sales or increase payouts.',
+          'Cursed artifacts cannot be listed without the Smuggler\'s Backdoor.',
+        ],
+      });
+      this._fadeTransition(() => this.showMarket());
     });
     ui.querySelector('#btn-nav-equipment').addEventListener('click', () => {
       this._fadeTransition(() => this.showEquip());
@@ -929,9 +379,59 @@ class PanoptikumHub {
         'hexmaze_totalscore',
         'hexmaze_collection',
         'hexmaze_laboratory',
+        'hexmaze_market',
+        'hexmaze_onboarding',
         'hexmaze_first_visitor_seen',
       ].forEach(k => localStorage.removeItem(k));
       window.location.reload();
+    });
+
+    // ── Merge confirm overlay ─────────────────────────────────────────────────
+    const mergeOverlay = document.createElement('div');
+    mergeOverlay.id = 'merge-confirm-overlay';
+    mergeOverlay.innerHTML = `
+      <div id="merge-confirm-dialog">
+        <div id="merge-confirm-title">⬡ Tier Merge Available</div>
+        <div id="merge-confirm-body">
+          You have <strong>three artifacts of the same type and tier</strong>.<br>
+          They can be fused into a single, higher-tier specimen.
+        </div>
+        <div id="merge-confirm-cost">
+          Cost: <span class="gold-cost" id="merge-cost-gold">— gold</span>
+          + <span class="res-cost" id="merge-cost-research">— research</span>
+        </div>
+        <div id="merge-confirm-btns">
+          <button id="btn-merge-cancel">✕ Keep Separate</button>
+          <button id="btn-merge-execute">⬡ Fuse Artifacts</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(mergeOverlay);
+    this._pendingMergeCandidate = null;
+
+    mergeOverlay.querySelector('#btn-merge-cancel').addEventListener('click', () => {
+      mergeOverlay.classList.remove('visible');
+      this._pendingMergeCandidate = null;
+    });
+    mergeOverlay.addEventListener('click', e => {
+      if (e.target === mergeOverlay) {
+        mergeOverlay.classList.remove('visible');
+        this._pendingMergeCandidate = null;
+      }
+    });
+    mergeOverlay.querySelector('#btn-merge-execute').addEventListener('click', () => {
+      const cand = this._pendingMergeCandidate;
+      if (!cand) { mergeOverlay.classList.remove('visible'); return; }
+      const result = this._collection.executeMerge(cand.typeId, cand.tier);
+      mergeOverlay.classList.remove('visible');
+      this._pendingMergeCandidate = null;
+      if (result) {
+        this._showToast(`⬡ Fused into ${ArtifactRegistry.getById(result.typeId)?.name || result.typeId} T${result.tier}`);
+        StatsManager.recalculateAll();
+        this._syncCollectionUI();
+      } else {
+        this._showToast('✕ Insufficient resources for merge');
+      }
     });
 
     // ── Arc animation manager ─────────────────────────────────────────────────
@@ -939,14 +439,41 @@ class PanoptikumHub {
 
     // ── Inventory + pedestal system ───────────────────────────────────────────
     this._collection = new PanoptikumCollection();
+    if (typeof StatsManager !== 'undefined') StatsManager.init(this._collection);
+    if (typeof OnboardingManager !== 'undefined') OnboardingManager.init();
     this._buildInventoryDOM();
     this._collection.startIncomeTicker(data => this._onIncomeTick(data));
 
     // Listen for in-game artifact pickups
     document.addEventListener('artifact:collected', e => {
-      const instance = this._collection.addArtifact(e.detail.typeId);
+      const instance = this._collection.addArtifact(e.detail.typeId, e.detail.tier ?? 1);
+      if (instance?.instanceId) {
+        // Let game-loop track this instanceId for rollback on a failed run
+        document.dispatchEvent(new CustomEvent('artifact:registered', {
+          detail: { instanceId: instance.instanceId },
+        }));
+      }
       this._syncCollectionUI();
       this._showArtifactToast(instance);
+    });
+
+    // Rollback artifacts collected during a failed run
+    document.addEventListener('artifact:rollback', e => {
+      const ids = e.detail?.instanceIds || [];
+      if (!ids.length) return;
+      for (const id of ids) this._collection.removeByInstanceId(id);
+      if (typeof StatsManager !== 'undefined') StatsManager.recalculateAll();
+      this._syncCollectionUI();
+    });
+
+    // Meta-gold earned at end of a successful run → add to panoptikumGold
+    document.addEventListener('gold:earned', e => {
+      const amount = e.detail?.amount ?? 0;
+      if (amount <= 0) return;
+      this._collection.state.panoptikumGold = (this._collection.state.panoptikumGold ?? 0) + amount;
+      this._collection._save();
+      if (typeof StatsManager !== 'undefined') StatsManager.recalculateAll();
+      this._showToast(`+${amount} ⬡ Gold → Panoptikum`);
     });
   }
 
@@ -969,6 +496,7 @@ class PanoptikumHub {
     const map = {
       panoptikum: '#btn-nav-panoptikum',
       laboratory: '#btn-nav-laboratory',
+      market:     '#btn-nav-market',
       equipment:  '#btn-nav-equipment',
       'view-a':   '#btn-nav-view-a',
       'view-b':   '#btn-nav-view-b',
@@ -1003,592 +531,6 @@ class PanoptikumHub {
 
   _buildInventoryDOM() {
     // ── Extra styles ──────────────────────────────────────────────────────────
-    if (!document.getElementById('pano-inv-styles')) {
-      const s = document.createElement('style');
-      s.id = 'pano-inv-styles';
-      s.textContent = `
-        /* ── Pedestal drop zones ── */
-        .pano-pedestal {
-          position: absolute;
-          width: 72px; height: 72px;
-          border-radius: 50%;
-          border: 2px dashed rgba(184,153,114,0.45);
-          background: rgba(6,6,15,0.35);
-          display: flex; align-items: center; justify-content: center;
-          transform: translate(-50%, -50%);
-          cursor: grab;
-          pointer-events: auto;
-          user-select: none; -webkit-user-select: none;
-          transition: border-color 0.18s, background 0.18s, box-shadow 0.18s;
-          z-index: 12;
-        }
-        .pano-pedestal:hover, .pano-pedestal.drag-over {
-          border-color: #ffd23f;
-          background: rgba(255,210,63,0.12);
-          box-shadow: 0 0 18px rgba(255,210,63,0.30);
-        }
-        .pano-pedestal.occupied {
-          border-color: rgba(200,160,255,0.55);
-          background: rgba(136,68,255,0.10);
-        }
-        .pano-pedestal-img {
-          width: 52px; height: 52px;
-          object-fit: contain; pointer-events: none;
-          filter: drop-shadow(0 0 6px rgba(200,160,255,0.50));
-        }
-        .pano-pedestal-empty-icon {
-          font-size: 1.4rem; color: rgba(184,153,114,0.30); pointer-events: none;
-        }
-        .pano-pedestal-badge {
-          position: absolute; bottom: -6px; left: 50%; transform: translateX(-50%);
-          font-size: 0.58rem; letter-spacing: 0.08em; color: #c880ff;
-          background: rgba(6,6,15,0.85); border: 1px solid rgba(200,160,255,0.35);
-          border-radius: 4px; padding: 1px 5px; white-space: nowrap;
-          pointer-events: none;
-        }
-
-        /* ── Hub stats bar (income / visitors / pano-gold) ── */
-        #pano-stats-bar {
-          position: absolute; top: 8px; right: 14px; z-index: 15;
-          display: none;
-          flex-direction: column; gap: 5px; align-items: flex-end;
-          font-family: 'Courier New', monospace;
-        }
-        #pano-view-hub.active #pano-stats-bar { display: flex; }
-        .pano-stat-chip {
-          background: rgba(6,6,15,0.85); border: 1px solid rgba(74,158,255,0.22);
-          border-radius: 6px; padding: 4px 10px;
-          font-size: 0.68rem; letter-spacing: 0.07em;
-          display: flex; align-items: center; gap: 7px;
-        }
-        .pano-stat-label { color: #4a9eff; text-transform: uppercase; }
-        .pano-stat-value { color: #ffd23f; font-weight: bold; }
-        .pano-stat-value.purple { color: #c880ff; }
-        .pano-stat-value.green  { color: #00ff88; }
-
-        /* ── Inventory drawer ── */
-        #pano-inventory-drawer {
-          position: absolute; bottom: 0; left: 0; right: 0;
-          z-index: 25;
-          background: rgba(6,6,15,0.96); backdrop-filter: blur(8px);
-          border-top: 1px solid rgba(74,158,255,0.22);
-          transform: translateY(100%);
-          transition: transform 0.30s cubic-bezier(0.22, 1, 0.36, 1);
-          max-height: 42vh; display: flex; flex-direction: column;
-        }
-        #pano-inventory-drawer.open { transform: translateY(0); }
-        #pano-inv-header {
-          display: flex; align-items: center; justify-content: space-between;
-          padding: 10px 16px 8px; border-bottom: 1px solid rgba(74,158,255,0.12);
-          flex-shrink: 0;
-        }
-        #pano-inv-title {
-          font-family: 'Courier New', monospace;
-          font-size: 0.72rem; letter-spacing: 0.14em; text-transform: uppercase;
-          color: #4a9eff;
-        }
-        #btn-close-inventory {
-          background: transparent; border: none; color: #556677;
-          font-size: 1.0rem; cursor: pointer; line-height: 1; padding: 0 4px;
-          transition: color 0.14s;
-        }
-        #btn-close-inventory:hover { color: #4a9eff; }
-        #pano-inv-grid {
-          flex: 1 1 auto; overflow-y: auto; padding: 12px 14px;
-          display: flex; flex-wrap: wrap; gap: 10px; align-content: flex-start;
-        }
-        #pano-inv-grid::-webkit-scrollbar { width: 3px; }
-        #pano-inv-grid::-webkit-scrollbar-thumb { background: rgba(74,158,255,0.25); border-radius: 2px; }
-        #pano-inv-empty {
-          font-family: 'Courier New', monospace; font-size: 0.76rem;
-          color: #334455; text-align: center; width: 100%; padding: 20px 0;
-          font-style: italic;
-        }
-
-        /* ── Individual artifact card ── */
-        .artifact-card {
-          width: 68px; position: relative; cursor: grab;
-          user-select: none; -webkit-user-select: none;
-          transition: transform 0.14s, box-shadow 0.14s;
-        }
-        .artifact-card:hover { transform: translateY(-3px); }
-        .artifact-card.dragging { opacity: 0.35; cursor: grabbing; }
-        .artifact-card-img-wrap {
-          width: 68px; height: 68px;
-          background: rgba(255,255,255,0.04);
-          border: 1px solid rgba(74,158,255,0.20);
-          border-radius: 8px;
-          display: flex; align-items: center; justify-content: center;
-          overflow: hidden;
-        }
-        .artifact-card-img {
-          width: 54px; height: 54px; object-fit: contain;
-          pointer-events: none;
-        }
-        .artifact-card-tier {
-          position: absolute; top: -5px; right: -5px;
-          background: #8844ff; color: #fff;
-          font-size: 0.58rem; font-weight: bold; letter-spacing: 0.06em;
-          border-radius: 3px; padding: 1px 4px;
-        }
-        .artifact-card-name {
-          font-family: 'Courier New', monospace;
-          font-size: 0.56rem; color: #8899aa; text-align: center;
-          margin-top: 3px; line-height: 1.3;
-          overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-          width: 68px;
-        }
-
-        /* ── Drag ghost ── */
-        #artifact-drag-ghost {
-          position: fixed; pointer-events: none; z-index: 9999;
-          width: 68px; height: 68px;
-          border-radius: 8px; overflow: hidden;
-          border: 2px solid #c880ff;
-          box-shadow: 0 0 18px rgba(200,128,255,0.55);
-          transform: translate(-50%, -50%);
-          background: rgba(6,6,15,0.90);
-          display: flex; align-items: center; justify-content: center;
-        }
-        #artifact-drag-ghost img {
-          width: 52px; height: 52px; object-fit: contain;
-        }
-
-        /* ── Inventory toggle button ── */
-        #btn-open-inventory {
-          position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%);
-          z-index: 20; font-family: 'Courier New', monospace;
-          background: rgba(6,6,15,0.88); border: 1px solid rgba(74,158,255,0.35);
-          color: #4a9eff; border-radius: 6px; padding: 7px 22px;
-          font-size: 0.72rem; letter-spacing: 0.12em; text-transform: uppercase;
-          cursor: pointer; transition: background 0.14s, border-color 0.14s;
-          white-space: nowrap;
-        }
-        #btn-open-inventory:hover {
-          background: rgba(74,158,255,0.10); border-color: #4a9eff;
-        }
-
-        /* ── Artifact toast notification ── */
-        #artifact-toast {
-          position: fixed; top: 70px; right: 18px; z-index: 1150;
-          background: rgba(6,6,15,0.94); border: 1px solid rgba(200,128,255,0.55);
-          border-radius: 10px; padding: 12px 16px;
-          font-family: 'Courier New', monospace;
-          max-width: 260px;
-          display: flex; gap: 12px; align-items: center;
-          transform: translateX(120%); transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1);
-          box-shadow: 0 0 24px rgba(200,128,255,0.20);
-        }
-        #artifact-toast.visible { transform: translateX(0); }
-        #artifact-toast-img { width: 44px; height: 44px; object-fit: contain; flex-shrink: 0; }
-        #artifact-toast-body { flex: 1; }
-        #artifact-toast-label {
-          font-size: 0.58rem; letter-spacing: 0.14em; text-transform: uppercase;
-          color: #c880ff; margin-bottom: 3px;
-        }
-        #artifact-toast-name { font-size: 0.78rem; color: #c8d6e5; font-weight: bold; }
-        #artifact-toast-tier { font-size: 0.64rem; color: #8844ff; margin-top: 2px; }
-
-        /* ── Merge flash ── */
-        #merge-flash {
-          position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
-          z-index: 1200; pointer-events: none;
-          font-family: 'Courier New', monospace;
-          font-size: 1.1rem; font-weight: bold; letter-spacing: 0.10em;
-          color: #c880ff; text-shadow: 0 0 20px #c880ff;
-          opacity: 0; transition: opacity 0.4s;
-        }
-        #merge-flash.visible { opacity: 1; }
-
-        /* ── Visitor sprites ── */
-        .crowd-visitor {
-          position: absolute; bottom: 0;
-          height: 80%; width: auto;
-          object-fit: contain;
-          image-rendering: auto;
-          pointer-events: none;
-          transform-origin: bottom center;
-          transition: none;
-        }
-
-        /* ── First-visitor notification ── */
-        #visitor-notification {
-          position: fixed; bottom: 80px; left: 50%; transform: translateX(-50%) translateY(30px);
-          z-index: 1150; opacity: 0;
-          transition: opacity 0.5s, transform 0.5s;
-          background: rgba(6,6,15,0.96); border: 1px solid rgba(255,210,63,0.55);
-          border-radius: 10px; padding: 16px 22px; max-width: 420px; width: 90%;
-          font-family: 'Courier New', monospace; color: #c8d6e5;
-          text-align: center; pointer-events: none;
-          box-shadow: 0 0 30px rgba(255,210,63,0.12);
-        }
-        #visitor-notification.visible {
-          opacity: 1; transform: translateX(-50%) translateY(0);
-        }
-        #visitor-notification-title {
-          font-size: 0.72rem; letter-spacing: 0.14em; text-transform: uppercase;
-          color: #ffd23f; margin-bottom: 8px;
-        }
-        #visitor-notification-body {
-          font-size: 0.76rem; color: #8899aa; line-height: 1.65;
-        }
-
-        /* ── Artifact dossier overlay ── */
-        #artifact-dossier {
-          position: fixed; inset: 0; z-index: 1300;
-          background: rgba(4,4,12,0.92); backdrop-filter: blur(10px);
-          display: none; align-items: center; justify-content: center;
-        }
-        #artifact-dossier.visible { display: flex; }
-        #dossier-panel {
-          background: rgba(10,8,20,0.98);
-          border: 1px solid rgba(200,128,255,0.35);
-          border-radius: 14px; padding: 28px 30px;
-          max-width: 720px; width: 94%; max-height: 88vh;
-          display: flex; gap: 28px; overflow: hidden;
-          box-shadow: 0 0 60px rgba(200,128,255,0.10);
-          font-family: 'Courier New', monospace; color: #c8d6e5;
-        }
-        #dossier-img-col {
-          flex: 0 0 180px; display: flex; flex-direction: column;
-          align-items: center; gap: 14px;
-        }
-        #dossier-full-img {
-          width: 160px; height: 160px; object-fit: contain;
-          border: 1px solid rgba(200,128,255,0.25);
-          border-radius: 10px; background: rgba(255,255,255,0.03);
-          filter: drop-shadow(0 0 14px rgba(200,128,255,0.30));
-        }
-        #dossier-tier-badge {
-          font-size: 0.74rem; letter-spacing: 0.10em;
-          color: #c880ff; text-transform: uppercase;
-        }
-        #dossier-info-col {
-          flex: 1 1 0; overflow-y: auto; display: flex; flex-direction: column; gap: 14px;
-        }
-        #dossier-info-col::-webkit-scrollbar { width: 3px; }
-        #dossier-info-col::-webkit-scrollbar-thumb { background: rgba(200,128,255,0.25); border-radius: 2px; }
-        #dossier-name {
-          font-size: 1.05rem; font-weight: bold; color: #e8d8ff;
-          letter-spacing: 0.06em; border-bottom: 1px solid rgba(200,128,255,0.20);
-          padding-bottom: 10px;
-        }
-        .dossier-section-title {
-          font-size: 0.60rem; letter-spacing: 0.18em; text-transform: uppercase;
-          color: #4a9eff; margin-bottom: 6px;
-        }
-        .dossier-lore {
-          font-size: 0.76rem; color: #8899aa; line-height: 1.70; font-style: italic;
-        }
-        .dossier-lore.locked { color: #2a3a4a; filter: blur(3px); user-select: none; }
-        .dossier-meta-table {
-          display: grid; grid-template-columns: 1fr 1fr; gap: 5px 18px;
-        }
-        .dossier-meta-row { display: contents; }
-        .dossier-meta-key {
-          font-size: 0.62rem; color: #4a9eff; text-transform: uppercase;
-          letter-spacing: 0.08em;
-        }
-        .dossier-meta-val {
-          font-size: 0.72rem; color: #c8d6e5;
-        }
-        .dossier-meta-val.locked {
-          color: #334455; letter-spacing: 0.20em;
-        }
-        .dossier-trait {
-          background: rgba(255,255,255,0.03);
-          border: 1px solid rgba(74,158,255,0.12);
-          border-radius: 6px; padding: 8px 12px; font-size: 0.72rem;
-          color: #8899aa; line-height: 1.55;
-        }
-        .dossier-trait.positive { border-color: rgba(0,255,136,0.18); }
-        .dossier-trait.negative { border-color: rgba(255,68,102,0.18); }
-        .dossier-trait-name {
-          font-weight: bold; color: #c8d6e5; margin-bottom: 3px;
-        }
-        .dossier-trait.positive .dossier-trait-name { color: #00ff88; }
-        .dossier-trait.negative .dossier-trait-name { color: #ff4466; }
-        #dossier-unlock-row {
-          display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px;
-        }
-        .dossier-unlock-btn {
-          background: transparent;
-          border: 1px solid rgba(255,210,63,0.35); color: #ffd23f;
-          border-radius: 5px; padding: 4px 12px;
-          font-family: inherit; font-size: 0.64rem; letter-spacing: 0.08em;
-          cursor: pointer; text-transform: uppercase;
-          transition: background 0.14s, border-color 0.14s;
-        }
-        .dossier-unlock-btn:hover {
-          background: rgba(255,210,63,0.10); border-color: #ffd23f;
-        }
-        .dossier-unlock-btn:disabled {
-          opacity: 0.35; cursor: not-allowed;
-        }
-        #btn-close-dossier {
-          align-self: flex-end; margin-top: auto;
-          background: transparent; border: 1px solid rgba(74,158,255,0.25);
-          color: #4a9eff; border-radius: 5px; padding: 6px 20px;
-          font-family: inherit; font-size: 0.72rem; letter-spacing: 0.08em;
-          cursor: pointer; text-transform: uppercase;
-          transition: background 0.14s;
-        }
-        #btn-close-dossier:hover { background: rgba(74,158,255,0.10); }
-
-        /* ── Laboratory nav button locked state ── */
-        .global-nav-btn.lab-locked {
-          color: #2a3a4a; border-color: rgba(74,158,255,0.10);
-          cursor: pointer; opacity: 0.8;
-        }
-        .global-nav-btn.lab-locked:hover {
-          color: #4a9eff; border-color: rgba(74,158,255,0.35);
-          background: rgba(74,158,255,0.06);
-        }
-
-        /* ── Lab purchase modal ── */
-        #lab-purchase-overlay {
-          position: fixed; inset: 0; z-index: 1200;
-          background: rgba(6,6,15,0.80); backdrop-filter: blur(6px);
-          display: none; align-items: center; justify-content: center;
-        }
-        #lab-purchase-overlay.visible { display: flex; }
-        #lab-purchase-dialog {
-          background: rgba(12,10,22,0.98);
-          border: 1px solid rgba(255,210,63,0.35);
-          border-radius: 10px; padding: 28px 30px;
-          max-width: 440px; width: 92%;
-          font-family: 'Courier New', monospace; color: #c8d6e5;
-          box-shadow: 0 0 40px rgba(255,210,63,0.08);
-        }
-        #lab-purchase-title {
-          font-size: 0.95rem; font-weight: bold; letter-spacing: 0.12em;
-          text-transform: uppercase; color: #ffd23f;
-          text-shadow: 0 0 10px rgba(255,210,63,0.4);
-          margin-bottom: 14px;
-        }
-        #lab-purchase-body {
-          font-size: 0.76rem; color: #7a8899; line-height: 1.68;
-          margin-bottom: 14px;
-        }
-        #lab-purchase-body strong { color: #c8d6e5; }
-        #lab-purchase-gold-display {
-          font-size: 0.72rem; color: #ffd23f;
-          margin-bottom: 18px; text-align: right;
-        }
-        #lab-purchase-btns {
-          display: flex; gap: 10px; justify-content: flex-end;
-        }
-        #btn-lab-cancel {
-          padding: 8px 18px;
-          background: transparent; border: 1.5px solid #334455; color: #556677;
-          border-radius: 6px; font-family: inherit; font-size: 0.78rem;
-          letter-spacing: 0.08em; cursor: pointer; text-transform: uppercase;
-          transition: background 0.14s, color 0.14s;
-        }
-        #btn-lab-cancel:hover { background: rgba(74,158,255,0.08); color: #4a9eff; }
-        #btn-lab-confirm {
-          padding: 8px 18px;
-          background: rgba(255,210,63,0.08); border: 1.5px solid #ffd23f;
-          color: #ffd23f; border-radius: 6px; font-family: inherit;
-          font-size: 0.78rem; font-weight: bold; letter-spacing: 0.08em;
-          cursor: pointer; text-transform: uppercase;
-          transition: background 0.14s, box-shadow 0.14s;
-        }
-        #btn-lab-confirm:hover {
-          background: rgba(255,210,63,0.16);
-          box-shadow: 0 0 14px rgba(255,210,63,0.25);
-        }
-        #btn-lab-confirm:disabled { opacity: 0.35; cursor: not-allowed; }
-
-        /* ── Laboratory view ── */
-        #pano-view-lab {
-          position: absolute; inset: 0;
-          background: radial-gradient(ellipse at 30% 60%, #0d1a0e 0%, #050a14 60%, #06060f 100%);
-          display: none; flex-direction: column; align-items: stretch;
-          overflow: hidden;
-        }
-        #pano-view-lab.active { display: flex; }
-        #lab-header {
-          padding: 14px 22px 10px;
-          border-bottom: 1px solid rgba(74,158,255,0.15);
-          display: flex; align-items: center; justify-content: space-between;
-          flex-shrink: 0;
-        }
-        #lab-header-title {
-          font-family: 'Courier New', monospace;
-          font-size: 0.78rem; letter-spacing: 0.18em; text-transform: uppercase;
-          color: #4a9eff;
-        }
-        #lab-stats-bar {
-          position: absolute; top: 58px; right: 14px; z-index: 15;
-          display: flex; flex-direction: column; gap: 5px; align-items: flex-end;
-          font-family: 'Courier New', monospace;
-        }
-        .lab-stat-chip {
-          background: rgba(6,6,15,0.85); border: 1px solid rgba(0,255,136,0.22);
-          border-radius: 6px; padding: 4px 10px;
-          display: flex; align-items: center; gap: 8px;
-        }
-        .lab-stat-label {
-          color: #4a9eff; text-transform: uppercase;
-          font-size: 0.54rem; letter-spacing: 0.12em;
-        }
-        .lab-stat-value { color: #00ff88; font-weight: bold; font-size: 0.90rem; }
-        .lab-stat-value.green { color: #00cc66; font-size: 0.78rem; }
-
-        /* ── Equipment / Loadout view ──────────────────────────────────────── */
-        #pano-view-equip {
-          position: absolute; inset: 0;
-          background: radial-gradient(ellipse at 70% 40%, #0e0d1a 0%, #060611 60%, #06060f 100%);
-          display: none; flex-direction: column; align-items: stretch; overflow: hidden;
-        }
-        #pano-view-equip.active { display: flex; }
-        #equip-header {
-          padding: 14px 22px 10px;
-          border-bottom: 1px solid rgba(255,160,80,0.18);
-          display: flex; align-items: center; gap: 18px; flex-shrink: 0;
-        }
-        #equip-header-title {
-          font-family: 'Courier New', monospace; font-size: 0.78rem;
-          letter-spacing: 0.18em; text-transform: uppercase; color: #ffb060;
-        }
-        #equip-header-sub { font-size: 0.68rem; color: #7a8a9a; }
-        #equip-content-row {
-          flex: 1; display: flex; flex-direction: row; gap: 0; overflow: hidden;
-        }
-        #equip-slots-col {
-          width: 260px; min-width: 200px; padding: 20px 16px;
-          border-right: 1px solid rgba(255,160,80,0.12);
-          display: flex; flex-direction: column; gap: 10px; overflow-y: auto;
-        }
-        #equip-figure-col {
-          flex: 0 0 180px; display: flex; align-items: flex-end; justify-content: center;
-          padding: 10px 0; overflow: hidden;
-        }
-        #equip-antiquarian-img {
-          max-height: 94%; object-fit: contain;
-          filter: drop-shadow(0 0 20px rgba(255,160,80,0.22));
-        }
-        #equip-inv-col {
-          flex: 1; padding: 16px; display: flex; flex-direction: column; gap: 10px; overflow: hidden;
-        }
-        #equip-inv-grid {
-          flex: 1; display: flex; flex-direction: column; gap: 6px; overflow-y: auto;
-          padding-right: 4px;
-        }
-        #equip-inv-grid::-webkit-scrollbar { width: 3px; }
-        #equip-inv-grid::-webkit-scrollbar-thumb { background: rgba(255,160,80,0.20); border-radius: 2px; }
-        .equip-slots-grid { display: flex; flex-direction: column; gap: 8px; }
-        .equip-slot {
-          border: 1px solid rgba(255,160,80,0.25); border-radius: 8px;
-          padding: 8px 10px; cursor: grab;
-          transition: border-color 0.15s, background 0.15s;
-          display: flex; flex-direction: column; gap: 4px;
-          min-height: 60px;
-        }
-        .equip-slot.drag-over {
-          border-color: rgba(255,180,80,0.80); background: rgba(255,160,80,0.10);
-        }
-        .equip-slot.occupied { border-color: rgba(255,160,80,0.50); background: rgba(255,160,80,0.06); }
-        .equip-slot-label {
-          font-size: 0.58rem; letter-spacing: 0.12em; text-transform: uppercase;
-          color: #ffb060; opacity: 0.7;
-        }
-        .equip-slot-inner { display: flex; align-items: center; gap: 8px; flex: 1; }
-        .equip-slot-img { width: 36px; height: 36px; object-fit: contain; }
-        .equip-slot-name { font-size: 0.70rem; color: #c8d6e5; }
-        .equip-slot-empty { font-size: 0.65rem; color: #3a4a5a; font-style: italic; }
-        .inv-card-slot-tag {
-          font-size: 0.58rem; color: #ffb060; opacity: 0.75;
-          background: rgba(255,160,80,0.08); border-radius: 4px; padding: 1px 5px;
-        }
-        #lab-slots-area {
-          flex: 1; display: flex; align-items: center; justify-content: center;
-          gap: 30px; padding: 30px;
-        }
-        .lab-slot {
-          width: 130px; height: 130px;
-          border: 2px dashed rgba(0,255,136,0.25);
-          border-radius: 12px;
-          background: rgba(0,255,136,0.04);
-          display: flex; flex-direction: column;
-          align-items: center; justify-content: center;
-          gap: 8px; position: relative; cursor: pointer;
-          transition: border-color 0.18s, background 0.18s, box-shadow 0.18s;
-        }
-        .lab-slot:hover, .lab-slot.drag-over {
-          border-color: #00ff88;
-          background: rgba(0,255,136,0.10);
-          box-shadow: 0 0 20px rgba(0,255,136,0.15);
-        }
-        .lab-slot.occupied {
-          border-color: rgba(0,200,100,0.50);
-          background: rgba(0,100,50,0.12);
-        }
-        .lab-slot-img {
-          width: 72px; height: 72px; object-fit: contain;
-          filter: drop-shadow(0 0 8px rgba(0,255,136,0.35));
-          pointer-events: none;
-        }
-        .lab-slot-empty-icon {
-          font-size: 2.2rem; color: rgba(0,255,136,0.20); pointer-events: none;
-        }
-        .lab-slot-name {
-          font-family: 'Courier New', monospace;
-          font-size: 0.60rem; color: #00cc66;
-          text-align: center; line-height: 1.3;
-          max-width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-          pointer-events: none;
-        }
-        .lab-slot-research-rate {
-          position: absolute; top: -8px; right: -8px;
-          background: rgba(0,20,10,0.95); border: 1px solid rgba(0,255,136,0.35);
-          border-radius: 4px; padding: 2px 6px;
-          font-family: 'Courier New', monospace; font-size: 0.58rem;
-          color: #00ff88; white-space: nowrap;
-          pointer-events: none;
-        }
-        #lab-help-text {
-          font-family: 'Courier New', monospace; font-size: 0.68rem;
-          color: #2a4a3a; line-height: 1.60; margin-top: 16px;
-          text-align: center;
-        }
-
-        /* ── Lab content two-column layout ── */
-        #lab-content-row {
-          flex: 1; display: flex; overflow: hidden;
-        }
-        #lab-slots-col {
-          flex: 0 0 auto; display: flex; flex-direction: column;
-          align-items: center; padding: 16px 20px 20px;
-          border-right: 1px solid rgba(0,255,136,0.10);
-          min-width: 320px;
-        }
-        #lab-inv-col {
-          flex: 1 1 0; display: flex; flex-direction: column;
-          padding: 16px 18px 20px; overflow: hidden;
-        }
-        .lab-col-title {
-          font-family: 'Courier New', monospace;
-          font-size: 0.60rem; letter-spacing: 0.18em; text-transform: uppercase;
-          color: #4a9eff; margin-bottom: 12px; align-self: flex-start;
-        }
-
-        /* ── Lab embedded inventory grid ── */
-        #lab-inv-grid {
-          flex: 1 1 auto; overflow-y: auto;
-          display: flex; flex-wrap: wrap; gap: 10px; align-content: flex-start;
-        }
-        #lab-inv-grid::-webkit-scrollbar { width: 3px; }
-        #lab-inv-grid::-webkit-scrollbar-thumb { background: rgba(0,255,136,0.20); border-radius: 2px; }
-        #lab-inv-empty {
-          font-family: 'Courier New', monospace; font-size: 0.76rem;
-          color: #1a3a2a; text-align: center; width: 100%;
-          padding: 20px 0; font-style: italic;
-        }
-      `;
-      document.head.appendChild(s);
-    }
 
     // ── Stats bar (income / visitors / gold) ─────────────────────────────────
     const statsBar = document.createElement('div');
@@ -1637,6 +579,11 @@ class PanoptikumHub {
     document.getElementById('pano-view-hub').appendChild(invBtn);
     invBtn.addEventListener('click', () => this._toggleInventory());
 
+    // ── Audience Insight card (Tier 1 only — no Lab required) ────────────────
+    const hubInsight = document.createElement('div');
+    hubInsight.id = 'hub-insight-area';
+    document.getElementById('pano-view-hub').appendChild(hubInsight);
+
     // ── Inventory drawer ──────────────────────────────────────────────────────
     const drawer = document.createElement('div');
     drawer.id = 'pano-inventory-drawer';
@@ -1683,6 +630,15 @@ class PanoptikumHub {
     `;
     document.body.appendChild(vnotif);
 
+    // ── Exhibit appeal notification ───────────────────────────────────────────
+    const appealNotif = document.createElement('div');
+    appealNotif.id = 'exhibit-appeal-notification';
+    appealNotif.innerHTML = `
+      <div id="exhibit-appeal-title">⚑ A Pattern Emerges</div>
+      <div id="exhibit-appeal-body">Visitor numbers have begun to fluctuate in ways that do not align with the known monetary value of each exhibit. Certain displays seem to command disproportionate attention — or an unusual willingness to pay. Can the appeal of individual artifacts be systematically studied?</div>
+    `;
+    document.body.appendChild(appealNotif);
+
     // ── Artifact dossier overlay ───────────────────────────────────────────────
     const dossier = document.createElement('div');
     dossier.id = 'artifact-dossier';
@@ -1715,6 +671,11 @@ class PanoptikumHub {
     dossier.querySelector('#btn-close-dossier').addEventListener('click', () => this._closeDossier());
     dossier.addEventListener('click', e => { if (e.target === dossier) this._closeDossier(); });
 
+    // ── Text toast ───────────────────────────────────────────────────────────────
+    const textToast = document.createElement('div');
+    textToast.id = 'pano-text-toast';
+    document.body.appendChild(textToast);
+
     // ── Lab drop zones ─────────────────────────────────────────────────────────
     this._buildLabSlots();
 
@@ -1744,20 +705,62 @@ class PanoptikumHub {
   // ── Income tick handler: update UI + spawn currency arcs ────────────────────
 
   _onIncomeTick({ goldEarned = 0, researchEarned = 0 } = {}) {
-    this._syncCollectionUI();
+    // Lightweight tick: update displayed numbers only — no DOM grid rebuilds.
+    // Full _syncCollectionUI() is reserved for state-mutating events (drops,
+    // sales, merges, crucible completions) so the grid isn't trashed every second.
+    if (typeof StatsManager !== 'undefined') StatsManager.recalculateAll();
+    this._syncStatsBar();
+    if (this._el('pano-view-lab')?.classList.contains('active')) {
+      const rateEl = document.getElementById('lab-research-rate');
+      if (rateEl) {
+        const rpm = window.GlobalGameStats?.researchPerMin
+          ?? ArtifactRegistry.calculateResearchRPM(this._collection.labState.slots);
+        rateEl.textContent = rpm > 0 ? `+${rpm}` : '0';
+      }
+      const resEl = document.getElementById('lab-research-val');
+      if (resEl) resEl.textContent = Math.floor(this._collection.labState.research);
+      this._syncCrucibleUI();
+    }
+    if (this._el('pano-view-market')?.classList.contains('active')) this._syncMarketUI();
+
+    // ── State-change checks ───────────────────────────────────────────────────
+    const completedSales = this._collection.checkCompletedSales();
+    if (completedSales.length) {
+      for (const { payout, artifact } of completedSales) {
+        const def = ArtifactRegistry.getById(artifact.typeId);
+        this._showToast(`✦ Sold ${def?.name || artifact.typeId} for ${payout} gold`);
+      }
+      // State changed — full sync now
+      if (typeof StatsManager !== 'undefined') StatsManager.recalculateAll();
+      this._syncCollectionUI();
+    }
+    const discovery = this._collection.checkCrucibleComplete();
+    if (discovery) {
+      if (typeof OnboardingManager !== 'undefined') {
+        OnboardingManager.trigger('seenCrucible', {
+          title: discovery.name,
+          icon: '⊗',
+          lore: discovery.loreText,
+          rules: [
+            `Applies to: <strong>${discovery.appliesTo}</strong> artifacts`,
+            `Effect: <strong>${discovery.effect?.type}</strong> +${discovery.effect?.value}`,
+            'This discovery is <strong>permanent</strong> and applies retroactively.',
+          ],
+        });
+      }
+      if (typeof StatsManager !== 'undefined') StatsManager.recalculateAll();
+      this._syncCollectionUI();
+    }
 
     // ── Gold arcs ─────────────────────────────────────────────────────────────
     // Accumulate fractions; only spawn when a whole unit is ready.
-    // This ensures arcs fire at the correct rate (e.g. once per 20s at 3 gold/min).
     this._goldArcAccum = (this._goldArcAccum ?? 0) + goldEarned;
     if (this._goldArcAccum >= 1 && this._el('pano-view-hub')?.classList.contains('active')) {
-      this._goldArcAccum -= 1; // consume exactly 1 unit; remainder carries forward
+      this._goldArcAccum -= 1;
       this._spawnGoldArc();
     }
 
     // ── Research arcs ─────────────────────────────────────────────────────────
-    // Same accumulator logic. When threshold is crossed, fire one arc per
-    // occupied slot simultaneously. Size = whole units earned (area scales > 1).
     this._researchArcAccum = (this._researchArcAccum ?? 0) + researchEarned;
     if (this._researchArcAccum >= 1 && this._el('pano-view-lab')?.classList.contains('active')) {
       const units = Math.floor(this._researchArcAccum);
@@ -1824,15 +827,121 @@ class PanoptikumHub {
   // ── Sync UI from collection state ─────────────────────────────────────────────
 
   _syncCollectionUI() {
+    if (typeof StatsManager !== 'undefined') StatsManager.recalculateAll();
     this._syncPedestals();
     this._syncInventoryGrid();
     this._syncStatsBar();
     this._syncLabUI();
-    const unlockedByTypeId = this._collection.getUnlockedByTypeId();
-    const gpm      = ArtifactRegistry.calculatePassiveGPM(this._collection.state.pedestals, unlockedByTypeId);
-    const visitors = ArtifactRegistry.calculateVisitorCount(gpm);
+    const stats    = window.GlobalGameStats;
+    const visitors = stats ? stats.visitors : (() => {
+      const unlockedByTypeId  = this._collection.getUnlockedByTypeId();
+      const unlockedKnowledge = this._collection.labState.unlockedKnowledge || {};
+      const gpm = ArtifactRegistry.calculatePassiveGPM(this._collection.state.pedestals, unlockedByTypeId, unlockedKnowledge);
+      return ArtifactRegistry.calculateVisitorCount(gpm);
+    })();
     this._updateVisitors(visitors);
     this._checkFirstVisitor(visitors);
+    this._checkHighExhibitGPM();
+    this._buildInsightUI();
+  }
+
+  /**
+   * Fires the "A Pattern Emerges" notification the first time any exhibited artifact
+   * has an exhibitGPM > 2.0 (indicating meaningful crowd appeal variation).
+   */
+  _checkHighExhibitGPM() {
+    if (localStorage.getItem('hexmaze_appeal_noticed')) return;
+    if (typeof ArtifactRegistry === 'undefined') return;
+    const pedestals = this._collection.state.pedestals;
+    const triggered = pedestals.some(s => {
+      if (!s) return false;
+      return ArtifactRegistry.getExhibitGPM(s.typeId) > 2.0;
+    });
+    if (!triggered) return;
+    localStorage.setItem('hexmaze_appeal_noticed', '1');
+    const el = document.getElementById('exhibit-appeal-notification');
+    if (!el) return;
+    el.classList.add('visible');
+    setTimeout(() => el.classList.remove('visible'), 9000);
+  }
+
+  /**
+   * Rebuilds Audience Research UI in two locations:
+   *  - Hub (#hub-insight-area): Tier 1 only — always available, no Lab needed.
+   *  - Lab (#lab-insight-area): Tier 2+ only — becomes available when player has
+   *    Tier 2+ artifacts and the Lab is purchased.
+   * Both are hidden until the "hexmaze_appeal_noticed" flag is set.
+   */
+  _buildInsightUI() {
+    const noticed = !!localStorage.getItem('hexmaze_appeal_noticed');
+    const maxTier = this._collection.getMaxCollectionTier();
+    const gold    = Math.floor(this._collection.state.panoptikumGold);
+
+    // ── Hub card: Tier 1 (Grimy) only ────────────────────────────────────────
+    const hubArea = document.getElementById('hub-insight-area');
+    if (hubArea) {
+      if (!noticed) {
+        hubArea.style.display = 'none';
+      } else {
+        hubArea.style.display = '';
+        hubArea.innerHTML = '';
+        const header = document.createElement('div');
+        header.className = 'hub-insight-header';
+        header.textContent = '⚑ Audience Research';
+        hubArea.appendChild(header);
+        hubArea.appendChild(this._makeInsightCard(1, gold));
+      }
+    }
+
+    // ── Lab section: Tier 2 and above ────────────────────────────────────────
+    const labSection = document.getElementById('lab-insight-section');
+    const labArea    = document.getElementById('lab-insight-area');
+    if (labSection && labArea) {
+      if (!noticed || maxTier < 2) {
+        labSection.style.display = 'none';
+      } else {
+        labSection.style.display = '';
+        labArea.innerHTML = '';
+        for (let tier = 2; tier <= maxTier; tier++) {
+          labArea.appendChild(this._makeInsightCard(tier, gold));
+        }
+      }
+    }
+
+    // Wire purchase buttons. Cards are rebuilt from scratch above so there are
+    // no stale listeners — attach directly without clone-and-replace.
+    for (const btn of document.querySelectorAll('[data-insight-tier]')) {
+      const tier = Number(btn.dataset.insightTier);
+      btn.disabled = gold < this._collection.audienceInsightCost(tier);
+      btn.addEventListener('click', () => {
+        const ok = this._collection.purchaseAudienceInsight(tier);
+        if (ok) {
+          const tierName = (typeof TIER_NAMES !== 'undefined' ? TIER_NAMES[tier] : '') || `T${tier}`;
+          this._showToast(`✦ Survey commissioned — ${tierName} appeal now quantified`);
+          this._syncCollectionUI(); // triggers _buildInsightUI → cards rebuild immediately
+        } else {
+          this._showToast('✕ Insufficient gold');
+        }
+      });
+    }
+  }
+
+  /** Builds a single insight card DOM element for the given tier. */
+  _makeInsightCard(tier, currentGold) {
+    const purchased = this._collection.hasAudienceInsight(tier);
+    const cost      = this._collection.audienceInsightCost(tier);
+    const tierName  = (typeof TIER_NAMES !== 'undefined' ? TIER_NAMES[tier] : '') || `T${tier}`;
+    const card = document.createElement('div');
+    card.className = `market-upgrade-card${purchased ? ' purchased' : ''}`;
+    card.innerHTML = purchased
+      ? `<div class="market-upgrade-name">Valuation Survey — ${tierName}</div>
+         <div class="market-upgrade-effect">Exhibition appeal visible in artifact dossiers</div>
+         <div style="font-size:0.62rem;color:#00ff88;">✓ Conducted</div>`
+      : `<div class="market-upgrade-name">Valuation Survey — ${tierName}</div>
+         <div class="market-upgrade-effect">Reveals exhibition appeal of all ${tierName} artifacts</div>
+         <div class="market-upgrade-cost">Cost: ${cost} gold</div>
+         <button class="btn-market-upgrade" data-insight-tier="${tier}">Commission</button>`;
+    return card;
   }
 
   _syncPedestals() {
@@ -1881,9 +990,11 @@ class PanoptikumHub {
     });
   }
 
-  _syncInventoryGrid() {
+  _syncInventoryGrid(extraGridId) {
     this._renderInventoryInto(document.getElementById('pano-inv-grid'), 'pano-inv-empty');
     this._renderInventoryInto(document.getElementById('lab-inv-grid'),  'lab-inv-empty');
+    this._renderInventoryInto(document.getElementById('equip-inv-grid'), 'equip-inv-empty');
+    if (extraGridId) this._renderInventoryInto(document.getElementById(extraGridId), `${extraGridId}-empty`);
   }
 
   _renderInventoryInto(grid, emptyId) {
@@ -1903,10 +1014,10 @@ class PanoptikumHub {
       card.title          = ArtifactRegistry.getDisplayName(item);
       card.innerHTML = `
         <div class="artifact-card-img-wrap">
-          <img class="artifact-card-img" src="${def.spriteFull || def.sprite}" alt="${def.name}">
+          <img class="artifact-card-img" src="${def.spriteFull || def.sprite}" alt="${escapeHtml(def.name)}">
         </div>
         <div class="artifact-card-tier">T${item.tier}</div>
-        <div class="artifact-card-name">${TIER_NAMES[item.tier]} ${def.name}</div>
+        <div class="artifact-card-name">${escapeHtml(TIER_NAMES[item.tier])} ${escapeHtml(def.name)}</div>
       `;
       card.addEventListener('dragstart',   e => e.preventDefault());
       card.addEventListener('mousedown',  e => { e.preventDefault(); this._pendingClick = { instanceId: item.instanceId, x: e.clientX, y: e.clientY, cardEl: card, sourceType: 'inventory' }; });
@@ -1916,17 +1027,52 @@ class PanoptikumHub {
   }
 
   _syncStatsBar() {
-    const pedestals    = this._collection.state.pedestals;
-    const unlockedByTypeId = this._collection.getUnlockedByTypeId();
-    const gpm          = ArtifactRegistry.calculatePassiveGPM(pedestals, unlockedByTypeId);
-    const visitors     = ArtifactRegistry.calculateVisitorCount(gpm);
-    const gold         = Math.floor(this._collection.state.panoptikumGold);
-    const gpmEl        = document.getElementById('pano-gpm-val');
-    const visitorsEl   = document.getElementById('pano-visitors-val');
-    const goldEl       = document.getElementById('pano-gold-val');
+    const stats = window.GlobalGameStats;
+    let gpm, visitors, gold;
+    if (stats) {
+      gpm      = stats.gpm;
+      visitors = stats.visitors;
+      gold     = Math.floor(stats.panoptikumGold);
+    } else {
+      const pedestals         = this._collection.state.pedestals;
+      const unlockedByTypeId  = this._collection.getUnlockedByTypeId();
+      const unlockedKnowledge = this._collection.labState.unlockedKnowledge || {};
+      gpm      = ArtifactRegistry.calculatePassiveGPM(pedestals, unlockedByTypeId, unlockedKnowledge);
+      visitors = ArtifactRegistry.calculateVisitorCount(gpm);
+      gold     = Math.floor(this._collection.state.panoptikumGold);
+    }
+    const gpmEl      = document.getElementById('pano-gpm-val');
+    const visitorsEl = document.getElementById('pano-visitors-val');
+    const goldEl     = document.getElementById('pano-gold-val');
     if (gpmEl)      gpmEl.textContent      = gpm.toFixed(1);
     if (visitorsEl) visitorsEl.textContent = visitors;
     if (goldEl)     goldEl.textContent     = gold.toLocaleString();
+    this._syncGpmTooltip(stats?.gpmBreakdown);
+  }
+
+  _syncGpmTooltip(breakdown) {
+    let wrap = document.getElementById('pano-gpm-tooltip-wrap');
+    if (!wrap) {
+      const gpmEl = document.getElementById('pano-gpm-val');
+      if (!gpmEl) return;
+      wrap = document.createElement('span');
+      wrap.id = 'pano-gpm-tooltip-wrap';
+      wrap.className = 'gpm-tooltip-wrap';
+      gpmEl.parentNode.replaceChild(wrap, gpmEl);
+      wrap.appendChild(gpmEl);
+      const tip = document.createElement('div');
+      tip.id = 'pano-gpm-tooltip';
+      tip.className = 'gpm-tooltip';
+      wrap.appendChild(tip);
+      wrap.addEventListener('mouseenter', () => { document.getElementById('pano-gpm-tooltip')?.classList.add('visible'); });
+      wrap.addEventListener('mouseleave', () => { document.getElementById('pano-gpm-tooltip')?.classList.remove('visible'); });
+    }
+    const tip = document.getElementById('pano-gpm-tooltip');
+    if (!tip || !breakdown) return;
+    const total = breakdown.reduce((s, r) => s + r.value, 0);
+    tip.innerHTML = `<div class="gpm-tooltip-total">Total: ${total.toFixed(1)} gold/min</div>` +
+      (breakdown.length === 0 ? '<div style="color:#334455;font-size:0.64rem;">No artifacts on pedestals</div>' :
+        breakdown.map(r => `<div class="gpm-tooltip-row"><span class="gpm-t-label">${r.label}</span><span class="gpm-t-val">${r.value.toFixed(1)}</span></div>`).join(''));
   }
 
   // ── Pedestal event binding ────────────────────────────────────────────────────
@@ -1954,7 +1100,10 @@ class PanoptikumHub {
     }
     const def   = ArtifactRegistry.getById(item?.typeId);
     const ghost = document.getElementById('artifact-drag-ghost');
-    ghost.innerHTML      = `<img src="${def?.spriteFull || def?.sprite || ''}" alt="">`;
+    ghost.innerHTML = '';
+    const ghostImg = document.createElement('img');
+    ghostImg.src = def?.spriteFull || def?.sprite || '';
+    ghost.appendChild(ghostImg);
     ghost.style.display  = 'flex';
     ghost.style.left     = `${e.clientX}px`;
     ghost.style.top      = `${e.clientY}px`;
@@ -2033,9 +1182,10 @@ class PanoptikumHub {
 
     if (droppedOnPedestal >= 0) {
       this._collection.exhibit(instanceId, droppedOnPedestal);
-      const merge = this._collection.checkMerge();
-      if (merge) this._showMergeFlash(merge.newTier, merge.typeId);
+      if (typeof StatsManager !== 'undefined') StatsManager.recalculateAll();
       this._syncCollectionUI();
+      const mergeCandidate = this._collection.detectMerge();
+      if (mergeCandidate) this._showMergeConfirm(mergeCandidate);
       return;
     }
 
@@ -2051,9 +1201,30 @@ class PanoptikumHub {
 
     if (droppedOnLab >= 0) {
       this._collection.placeInLab(instanceId, droppedOnLab);
+      if (typeof StatsManager !== 'undefined') StatsManager.recalculateAll();
       this._syncCollectionUI();
       this._syncLabUI();
+      const mergeCandidate = this._collection.detectMerge();
+      if (mergeCandidate) this._showMergeConfirm(mergeCandidate);
       return;
+    }
+
+    // Check if dropped on crucible slot
+    const crucibleEl = document.getElementById('crucible-slot');
+    if (crucibleEl) {
+      const r = crucibleEl.getBoundingClientRect();
+      if (e.clientX >= r.left && e.clientX <= r.right &&
+          e.clientY >= r.top  && e.clientY <= r.bottom) {
+        const ok = this._collection.startCrucible(instanceId);
+        if (ok) {
+          if (typeof StatsManager !== 'undefined') StatsManager.recalculateAll();
+          this._syncCollectionUI();
+          this._syncLabUI();
+        } else {
+          this._showToast('✕ Crucible already in use or artifact not found');
+        }
+        return;
+      }
     }
 
     // Check if dropped on an equipment slot
@@ -2147,6 +1318,7 @@ class PanoptikumHub {
     this._el('pano-view-hub').style.display   = 'none';
     this._el('pano-view-hub').classList.remove('active');
     this._el('pano-view-equip')?.classList.remove('active');
+    this._el('pano-view-market')?.classList.remove('active');
     this._el('pano-view-lab').classList.add('active');
     this._showGlobalUI();
     this._setNavActive('laboratory');
@@ -2162,12 +1334,30 @@ class PanoptikumHub {
     this._el('pano-view-hub').style.display     = 'none';
     this._el('pano-view-hub').classList.remove('active');
     this._el('pano-view-lab').classList.remove('active');
+    this._el('pano-view-market')?.classList.remove('active');
     this._el('pano-view-equip').classList.add('active');
     this._showGlobalUI();
     this._setNavActive('equipment');
     this._stopVisitorAnimation();
     this._buildEquipSlots();
     this._syncEquipUI();
+  }
+
+  showMarket() {
+    this._exp.hide();
+    this._hub().style.display = 'flex';
+    this._el('pano-transition').style.display = 'none';
+    this._el('pano-views').style.display      = '';
+    this._el('pano-view-hub').style.display   = 'none';
+    this._el('pano-view-hub').classList.remove('active');
+    this._el('pano-view-lab').classList.remove('active');
+    this._el('pano-view-equip')?.classList.remove('active');
+    this._el('pano-view-market').classList.add('active');
+    this._showGlobalUI();
+    this._setNavActive('market');
+    this._stopVisitorAnimation();
+    this._buildMarketSlots();
+    this._syncMarketUI();
   }
 
   _buildEquipSlots() {
@@ -2345,9 +1535,11 @@ class PanoptikumHub {
     if (resEl) resEl.textContent = Math.floor(this._collection.labState.research).toLocaleString();
     const rateEl = document.getElementById('lab-research-rate');
     if (rateEl) {
-      const rpm = ArtifactRegistry.calculateResearchRPM(this._collection.labState.slots);
+      const rpm = window.GlobalGameStats?.researchPerMin
+        ?? ArtifactRegistry.calculateResearchRPM(this._collection.labState.slots);
       rateEl.textContent = rpm > 0 ? `+${rpm}` : '0';
     }
+    this._syncCrucibleUI();
 
     const slots = this._collection.labState.slots;
     (this._labSlotEls || []).forEach((el, i) => {
@@ -2497,6 +1689,209 @@ class PanoptikumHub {
     setTimeout(() => el.classList.remove('visible'), 7000);
   }
 
+  // ── Crucible UI ───────────────────────────────────────────────────────────────
+
+  _syncCrucibleUI() {
+    const slot   = this._el('crucible-slot');
+    const status = this._el('lab-crucible-status');
+    const btnCancel  = this._el('btn-crucible-cancel');
+    const btnCollect = this._el('btn-crucible-collect');
+    if (!slot) return;
+    const { artifact, startedAt, totalDuration } = this._collection.labState.crucible;
+    slot.innerHTML = artifact
+      ? (() => {
+          const def = ArtifactRegistry.getById(artifact.typeId);
+          return `<img src="${def?.sprite || ''}" alt="${def?.name || ''}">`;
+        })()
+      : '<span class="crucible-slot-icon">⊗</span>';
+    slot.classList.toggle('occupied', !!artifact);
+    if (!artifact) {
+      if (status) status.textContent = '';
+      if (btnCancel)  btnCancel.style.display  = 'none';
+      if (btnCollect) btnCollect.style.display = 'none';
+      return;
+    }
+    const elapsed  = Date.now() - startedAt;
+    const pct      = Math.min(1, elapsed / totalDuration);
+    const done     = pct >= 1;
+    const remaining = done ? 0 : Math.ceil((totalDuration - elapsed) / 1000);
+    const def = ArtifactRegistry.getById(artifact.typeId);
+    if (status) {
+      status.textContent = done
+        ? `Analysis complete — ${def?.name || artifact.typeId} ready to collect`
+        : `Analyzing ${def?.name || artifact.typeId}… ${Math.floor(remaining / 60)}m ${remaining % 60}s remaining`;
+    }
+    if (btnCancel)  btnCancel.style.display  = done ? 'none'  : '';
+    if (btnCollect) btnCollect.style.display = done ? ''      : 'none';
+    if (!this._crucibleBtnsWired) {
+      this._crucibleBtnsWired = true;
+      btnCancel?.addEventListener('click', () => {
+        this._collection.cancelCrucible();
+        StatsManager?.recalculateAll?.();
+        this._syncCollectionUI();
+      });
+      btnCollect?.addEventListener('click', () => {
+        const discovery = this._collection.checkCrucibleComplete();
+        if (discovery) {
+          this._showToast(`✦ Discovery: ${discovery.name}`);
+          if (typeof OnboardingManager !== 'undefined')
+            OnboardingManager.trigger('seenCrucible', {
+              title: discovery.name,
+              icon: '⊗',
+              lore: discovery.loreText,
+              rules: [
+                `Applies to: <strong>${discovery.appliesTo}</strong> artifacts`,
+                `Effect: <strong>${discovery.effect.type}</strong> +${discovery.effect.value}`,
+                'This discovery is <strong>permanent</strong> — it applies retroactively to your entire collection.',
+              ],
+            });
+        }
+        if (typeof StatsManager !== 'undefined') StatsManager.recalculateAll();
+        this._syncCollectionUI();
+      });
+    }
+  }
+
+  // ── Market UI ─────────────────────────────────────────────────────────────────
+
+  _buildMarketSlots() {
+    const area = document.getElementById('market-slots-area');
+    if (!area) return;
+    area.innerHTML = '';
+    const slots = this._collection.marketState.slots;
+    slots.forEach((_, i) => {
+      const el = document.createElement('div');
+      el.className    = 'market-slot';
+      el.dataset.slotIndex = i;
+      area.appendChild(el);
+      el.addEventListener('dragover',  e => { e.preventDefault(); el.classList.add('drag-over'); });
+      el.addEventListener('dragleave', () => el.classList.remove('drag-over'));
+      el.addEventListener('drop', e => {
+        e.preventDefault();
+        el.classList.remove('drag-over');
+        if (!this._dragState) return;
+        const { instanceId } = this._dragState;
+        this._collection.listForSale(instanceId, i);
+        this._endDrag();
+        if (typeof StatsManager !== 'undefined') StatsManager.recalculateAll();
+        this._syncCollectionUI();
+        this._syncMarketUI();
+      });
+    });
+    this._buildMarketUpgrades();
+  }
+
+  _buildMarketUpgrades() {
+    const area = document.getElementById('market-upgrades-area');
+    if (!area) return;
+    area.innerHTML = '';
+    for (const def of PanoptikumCollection.MARKET_UPGRADES) {
+      const card = document.createElement('div');
+      card.className = `market-upgrade-card${this._collection.marketState.upgrades[def.id] ? ' purchased' : ''}`;
+      card.innerHTML = `
+        <div class="market-upgrade-name">${escapeHtml(def.name)}</div>
+        <div class="market-upgrade-effect">${escapeHtml(def.effect)}</div>
+        <div class="market-upgrade-cost">Cost: ${def.cost} gold</div>
+        ${this._collection.marketState.upgrades[def.id]
+          ? '<div style="font-size:0.62rem;color:#00ff88;">✓ Purchased</div>'
+          : `<button class="btn-market-upgrade" data-upgrade-id="${def.id}">Purchase</button>`}
+      `;
+      area.appendChild(card);
+    }
+    area.querySelectorAll('.btn-market-upgrade').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const upgradeId = btn.dataset.upgradeId;
+        const ok = this._collection.purchaseMarketUpgrade(upgradeId);
+        if (ok) {
+          const def = PanoptikumCollection.MARKET_UPGRADES.find(u => u.id === upgradeId);
+          this._showToast(`✦ ${def?.name ?? 'Upgrade'} — purchased`);
+          if (typeof StatsManager !== 'undefined') StatsManager.recalculateAll();
+          this._syncCollectionUI();
+          this._syncMarketUI();
+          this._buildMarketUpgrades(); // rebuild cards so the purchased state shows immediately
+        } else {
+          this._showToast('✕ Insufficient gold');
+        }
+      });
+    });
+  }
+
+  _syncMarketUI() {
+    const slots = this._collection.marketState.slots;
+    const area  = document.getElementById('market-slots-area');
+    if (!area) return;
+    const slotEls = area.querySelectorAll('.market-slot');
+    const now     = Date.now();
+    slotEls.forEach((el, i) => {
+      const slot = slots[i];
+      el.classList.toggle('occupied', !!slot);
+      if (!slot) {
+        el.innerHTML = '<div class="market-slot-empty">Drop artifact to list</div>';
+        return;
+      }
+      const def       = ArtifactRegistry.getById(slot.artifact.typeId);
+      const elapsed   = now - slot.listedAt;
+      const pct       = Math.min(1, elapsed / slot.totalSaleTime);
+      const remaining = Math.ceil((slot.totalSaleTime - elapsed) / 1000);
+      const payout    = this._collection.getMarketPayout(slot.artifact);
+      el.innerHTML = `
+        <div class="market-slot-name">${def?.name || slot.artifact.typeId} T${slot.artifact.tier}</div>
+        <div class="market-slot-payout">Payout: ~${payout} gold</div>
+        <div class="market-slot-timer">${pct >= 1 ? '✦ Ready!' : `${Math.floor(remaining / 60)}m ${remaining % 60}s`}</div>
+        <div class="market-timer-track"><div class="market-timer-bar" style="width:${(pct * 100).toFixed(1)}%"></div></div>
+        <button class="market-slot-cancel" data-slot="${i}">✕</button>
+      `;
+    });
+    area.querySelectorAll('.market-slot-cancel').forEach(btn => {
+      btn.addEventListener('click', () => {
+        this._collection.cancelSale(parseInt(btn.dataset.slot, 10));
+        this._syncMarketUI();
+        this._syncCollectionUI();
+      });
+    });
+    // Sync inventory grid into market column
+    this._syncInventoryGrid('market-inv-grid');
+  }
+
+  // ── Merge confirm flow ─────────────────────────────────────────────────────────
+
+  _showMergeConfirm(candidate) {
+    this._pendingMergeCandidate = candidate;
+    const def = ArtifactRegistry.getById(candidate.typeId);
+    const name = def?.name || candidate.typeId;
+    const stats = window.GlobalGameStats;
+    const goldOk    = (stats?.panoptikumGold ?? this._collection.state.panoptikumGold) >= candidate.cost.gold;
+    const resOk     = (stats?.labResearch    ?? this._collection.labState.research)     >= candidate.cost.research;
+    const bodyEl = document.getElementById('merge-confirm-body');
+    bodyEl.innerHTML = '';
+    const s1 = document.createElement('strong');
+    s1.textContent = `three ${name} (T${candidate.tier})`;
+    const s2 = document.createElement('strong');
+    s2.textContent = `T${candidate.tier + 1}`;
+    bodyEl.append('You have ', s1, ' specimens.', document.createElement('br'),
+                  'They can be fused into a single ', s2, '.');
+    document.getElementById('merge-cost-gold').textContent     = `${candidate.cost.gold} gold`;
+    document.getElementById('merge-cost-gold').classList.toggle('insufficient', !goldOk);
+    document.getElementById('merge-cost-research').textContent = `${candidate.cost.research} research`;
+    document.getElementById('merge-cost-research').classList.toggle('insufficient', !resOk);
+    const execBtn = document.getElementById('btn-merge-execute');
+    if (execBtn) execBtn.disabled = !goldOk || !resOk;
+    document.getElementById('merge-confirm-overlay').classList.add('visible');
+    if (typeof OnboardingManager !== 'undefined') {
+      OnboardingManager.trigger('seenTierMerge', {
+        title: 'Tier Fusion',
+        icon: '⬡',
+        lore: 'Three specimens of the same kind, when combined through alchemical resonance, produce a single artifact of greater potency. The process is irreversible — and expensive.',
+        rules: [
+          'Drag an artifact onto an occupied pedestal or lab slot to trigger merge detection.',
+          '<strong>Costs Gold + Research</strong> — see the dialog for exact amounts.',
+          'The resulting artifact is <strong>one tier higher</strong>.',
+          'Merging is always optional: dismiss the dialog to keep all three.',
+        ],
+      });
+    }
+  }
+
   // ── Artifact dossier ──────────────────────────────────────────────────────────
 
   _openDossier(instanceId) {
@@ -2561,6 +1956,20 @@ class PanoptikumHub {
       metaEl.appendChild(valEl);
     }
 
+    // Exhibition appeal — always active, revealed by Audience Insight upgrade
+    if (typeof ArtifactRegistry !== 'undefined' && localStorage.getItem('hexmaze_appeal_noticed')) {
+      const hasInsight  = this._collection.hasAudienceInsight(item.tier);
+      const exhibitGPM  = ArtifactRegistry.getExhibitGPM(item.typeId);
+      const appealKey   = document.createElement('div');
+      appealKey.className   = 'dossier-meta-key';
+      appealKey.textContent = 'Exhibition Appeal';
+      const appealVal   = document.createElement('div');
+      appealVal.className   = `dossier-meta-val${hasInsight ? '' : ' locked'}`;
+      appealVal.textContent = hasInsight ? `${exhibitGPM.toFixed(1)} Gold/min` : '???';
+      metaEl.appendChild(appealKey);
+      metaEl.appendChild(appealVal);
+    }
+
     // Traits — hidden until 'traits' field is researched
     const traitsEl = this._el('dossier-traits');
     const traitsSectionEl = this._el('dossier-traits-section');
@@ -2571,7 +1980,13 @@ class PanoptikumHub {
         d.className = `dossier-trait ${trait.type}`;
         const desc = typeof trait.description === 'function'
           ? trait.description(item.tier) : (trait.description || '');
-        d.innerHTML = `<div class="dossier-trait-name">${trait.name}</div><div>${desc}</div>`;
+        const nameEl = document.createElement('div');
+        nameEl.className = 'dossier-trait-name';
+        nameEl.textContent = trait.name;
+        const descEl = document.createElement('div');
+        descEl.textContent = desc;
+        d.appendChild(nameEl);
+        d.appendChild(descEl);
         traitsEl.appendChild(d);
       }
       if (traitsSectionEl) traitsSectionEl.style.display = '';
@@ -2621,11 +2036,30 @@ class PanoptikumHub {
   // ── Override showHub / enterPlayMode for visitor management ──────────────────
 
   _startHubVisitors() {
-    const unlockedByTypeId = this._collection.getUnlockedByTypeId();
-    const gpm      = ArtifactRegistry.calculatePassiveGPM(this._collection.state.pedestals, unlockedByTypeId);
-    const visitors = ArtifactRegistry.calculateVisitorCount(gpm);
+    const visitors = window.GlobalGameStats
+      ? window.GlobalGameStats.visitors
+      : ArtifactRegistry.calculateVisitorCount(
+          ArtifactRegistry.calculatePassiveGPM(
+            this._collection.state.pedestals,
+            this._collection.getUnlockedByTypeId(),
+            this._collection.labState.unlockedKnowledge || {},
+          )
+        );
     this._updateVisitors(visitors);
     this._checkFirstVisitor(visitors);
     this._startVisitorAnimation();
+  }
+
+  // ── Text toast ────────────────────────────────────────────────────────────────
+
+  _showToast(msg) {
+    const el = document.getElementById('pano-text-toast');
+    if (!el) return;
+    el.textContent = msg;
+    el.classList.remove('visible');
+    void el.offsetWidth; // force reflow so the CSS transition restarts
+    el.classList.add('visible');
+    clearTimeout(this._textToastTimer);
+    this._textToastTimer = setTimeout(() => el.classList.remove('visible'), 3000);
   }
 }
