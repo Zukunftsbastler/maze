@@ -2,7 +2,7 @@
 
 const ICON_SVG = {
   gold:     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><polygon points="10,1 18.66,6 18.66,14 10,19 1.34,14 1.34,6" fill="#ffd23f" stroke="#cc9900" stroke-width="1.2"/><text x="10" y="13.5" text-anchor="middle" font-size="8" font-family="monospace" font-weight="bold" fill="#664400">G</text></svg>`,
-  spot:     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><circle cx="10" cy="10" r="8" fill="none" stroke="#8844ff" stroke-width="1.5" stroke-dasharray="3,2"/><circle cx="10" cy="10" r="3" fill="#8844ff"/></svg>`,
+  spot:     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><polygon points="10,2 16.93,6 16.93,14 10,18 3.07,14 3.07,6" fill="none" stroke="#2c3652" stroke-width="1.4" stroke-dasharray="3.5,3"/><line x1="7" y1="10" x2="13" y2="10" stroke="#2c3652" stroke-width="1.2" stroke-linecap="round"/><line x1="10" y1="7" x2="10" y2="13" stroke="#2c3652" stroke-width="1.2" stroke-linecap="round"/></svg>`,
   blockade: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><rect x="1" y="5" width="18" height="10" rx="2" fill="#8844ff" stroke="#c8a0ff" stroke-width="1"/><line x1="7" y1="5" x2="7" y2="15" stroke="#c8a0ff" stroke-width="0.8"/><line x1="13" y1="5" x2="13" y2="15" stroke="#c8a0ff" stroke-width="0.8"/><line x1="1" y1="10" x2="19" y2="10" stroke="#c8a0ff" stroke-width="0.8"/></svg>`,
   // Barricade material placeholders — replace with actual sprites when assets are ready
   // Depth 1: Wooden Planks — two brown horizontal planks with grain lines
@@ -15,7 +15,12 @@ const ICON_SVG = {
   'material-pumice': `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><circle cx="8" cy="12" r="5" fill="#b07070" stroke="#7a4040" stroke-width="0.8"/><circle cx="14" cy="11" r="4" fill="#a06060" stroke="#7a4040" stroke-width="0.8"/></svg>`,
   // Depth 5: Dense Bedrock Fragments — dark grey angular shards
   'material-bedrock':`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><polygon points="3,16 6,8 11,11 9,16" fill="#555570" stroke="#333348" stroke-width="0.8"/><polygon points="10,15 14,7 18,10 17,15" fill="#444460" stroke="#333348" stroke-width="0.8"/></svg>`,
+  // Nemesis — horned silhouette
+  nemesis: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M6,8 Q4,3 5.5,1 M14,8 Q16,3 14.5,1" stroke="#ff4466" stroke-width="1.4" fill="none" stroke-linecap="round"/><circle cx="10" cy="8.5" r="4" fill="#cc1133" stroke="#ff4466" stroke-width="0.8"/><circle cx="8.5" cy="7.5" r="0.9" fill="#ff8899"/><circle cx="11.5" cy="7.5" r="0.9" fill="#ff8899"/><path d="M8,9.5 Q10,11 12,9.5" stroke="#ff8899" stroke-width="0.8" fill="none" stroke-linecap="round"/><path d="M6,12 Q5,16 4,19 M14,12 Q15,16 16,19 M10,12.5 L10,19" stroke="#cc1133" stroke-width="1.3" fill="none" stroke-linecap="round"/></svg>`,
 };
+
+// Max HP for a freshly placed barricade
+const BARRICADE_HP = 30;
 
 function parseIconString(str) {
   return str.replace(/<icon-(\w+)>/g, (_, name) => {
@@ -372,6 +377,46 @@ class GameLoop {
     this._caveinProgress    = new Map(); // cellKey → { elapsed, total }
     this._excavationBonus   = 0;         // cached per run; fractional time reduction
 
+    // ── Asset images (cartographic sprite rendering) ──────────────────────
+    this._imgPlayer  = this._loadImg('ASSETS/ANTIQUARIANS/the_rugged_explorer.png');
+    this._imgNemesis = this._loadImg('ASSETS/NEMESIS/bronze_minotaur.png');
+    this._imgCoin    = this._loadImg('ASSETS/CURRENCY/single_gold_coin.png');
+    this._imgUpgrade = this._loadImg('ASSETS/ITEMS/ARTIFACTS/brass_compass.png');
+
+    // Barricade material images — 3 variants per depth, fragment + full-barricade
+    this._imgMaterials = {
+      depth1: {
+        frag: ['splintered_pine_board', 'discarded_crate_lid', 'rotted_support_beam']
+                 .map(n => this._loadImg(`ASSETS/BARRICADE/${n}.png`)),
+        full: ['splintered_pine_board', 'discarded_crate_lid', 'rotted_support_beam']
+                 .map(n => this._loadImg(`ASSETS/BARRICADE/${n}_full.png`)),
+      },
+      depth2: {
+        frag: ['bent_pipe_cluster', 'rusted_iron_grate', 'warped_steel_plate']
+                 .map(n => this._loadImg(`ASSETS/BARRICADE/${n}.png`)),
+        full: ['bent_pipe_cluster', 'rusted_iron_grate', 'warped_steel_plate']
+                 .map(n => this._loadImg(`ASSETS/BARRICADE/${n}_full.png`)),
+      },
+      depth3: {
+        frag: ['fossilized_sap_block', 'jagged_amber_slab', 'petrified_hive_fragment']
+                 .map(n => this._loadImg(`ASSETS/BARRICADE/${n}.png`)),
+        full: ['fossilized_sap_block', 'jagged_amber_slab', 'petrified_hive_fragment']
+                 .map(n => this._loadImg(`ASSETS/BARRICADE/${n}_full.png`)),
+      },
+      depth4: {
+        frag: ['charred_slag_heap', 'porous_ash_boulder', 'scoria_chunk']
+                 .map(n => this._loadImg(`ASSETS/BARRICADE/${n}.png`)),
+        full: ['charred_slag_heap', 'porous_ash_boulder', 'scoria_chunk']
+                 .map(n => this._loadImg(`ASSETS/BARRICADE/${n}_full.png`)),
+      },
+      depth5: {
+        frag: ['inert_granite_slab', 'jagged_obsidian_pillar', 'void_touched_basalt']
+                 .map(n => this._loadImg(`ASSETS/BARRICADE/${n}.png`)),
+        full: ['inert_granite_slab', 'jagged_obsidian_pillar', 'void_touched_basalt']
+                 .map(n => this._loadImg(`ASSETS/BARRICADE/${n}_full.png`)),
+      },
+    };
+
     // ── UI feedback timers ────────────────────────────────────────────────
     this._spawnAnimTimer   = 0;      // > 0 → expanding rings on player spawn
     this._phaseBannerText  = '';     // text shown in phase-transition banner
@@ -399,11 +444,9 @@ class GameLoop {
     this._shakeIntensity = 0;
     this._iconBannerTimer = null;
 
-    // ── Tutorial toasts ───────────────────────────────────────────────────────
-    this._toastTimer             = null;  // auto-dismiss handle
-    this._tutorialMaterialHinted = false; // shown grab-material hint this run
-    this._tutorialBuildHinted    = false; // shown tap-hold-to-build hint this run
-    this._tutorialBarricadeShown = false; // shown first-barricade confirmation
+    // ── Tutorial toasts / modals ──────────────────────────────────────────────
+    this._toastTimer             = null;  // auto-dismiss handle for minor toasts
+    this._tutorialModalOpen      = false; // true while a pausing modal is on screen
     this._lockedAtGoal           = false; // Phase B: player held at goal cell
 
     // ── Tutorial / Expedition ─────────────────────────────────────────────────
@@ -763,6 +806,13 @@ class GameLoop {
     this._lastPinchMidClientY = midCY;
   }
 
+  _loadImg(src) {
+    const img = new Image();
+    img.onload = () => { this._fogDirty = true; };
+    img.src = src;
+    return img;
+  }
+
   _showPhaseBanner(text, duration, color) {
     this._phaseBannerText  = text;
     this._phaseBannerTimer = duration;
@@ -872,10 +922,13 @@ class GameLoop {
 
     // Render with fog enabled (starts fully hidden)
     const offscreen = document.createElement('canvas');
+    const depthId   = this._expeditionZone?.depthId ?? 'depth1';
+    const dm        = this._imgMaterials[depthId] ?? this._imgMaterials.depth1;
     const renderer  = new HexRenderer(offscreen, {
       cellSize: this.cellSize, showPath: false, padding: 60, fogMode: true,
+      images: { coin: this._imgCoin, upgrade: this._imgUpgrade, matFull: dm.full, matFrag: dm.frag },
     });
-    renderer.render(grid);
+    renderer.render(grid, performance.now());
 
     return { grid, canvas: offscreen, worldLeft: renderer.worldLeft, worldTop: renderer.worldTop, renderer };
   }
@@ -1148,10 +1201,7 @@ class GameLoop {
     this._caveinProgress.clear();
     this._excavationBonus = this._getExcavationBonus();
 
-    // Tutorial state reset (per-run)
-    this._tutorialMaterialHinted = false;
-    this._tutorialBuildHinted    = false;
-    this._tutorialBarricadeShown = false;
+    // Tutorial modals persist via localStorage — no per-run reset needed
     this._lockedAtGoal           = false;
     this._hideTutorialToast();
 
@@ -1166,13 +1216,18 @@ class GameLoop {
     this._spawnAnimTimer = 2.5;
     if (this.progression.level >= 4) {
       this._showPhaseBanner('A — Explore', 3.5, '#4a9eff');
-      // Phase A tutorial hint — fires after the banner fades
-      setTimeout(() => {
-        this._showTutorialToast(
-          'Something has taken notice of me. Move fast — and grab any materials you find.',
-          7000
-        );
-      }, 2000);
+      // Phase A tutorial hint — fires after the banner fades; pauses the setup timer
+      if (!localStorage.getItem('hexmaze_tut_phaseA')) {
+        setTimeout(() => {
+          this._showTutorialModal({
+            text:   'Something has taken notice of me. Move fast — and grab any materials you find.',
+            assets: [
+              { imgSrc: this._getMaterialImgSrc(),                   label: 'Build Material' },
+              { imgSrc: 'ASSETS/CURRENCY/single_gold_coin_full.png', label: 'Gold'           },
+            ],
+          }, () => localStorage.setItem('hexmaze_tut_phaseA', '1'));
+        }, 2000);
+      }
     }
 
     // Setup timer for nemesis-enabled levels
@@ -1373,16 +1428,28 @@ class GameLoop {
     if (this.progression.level >= 4) {
       const grid  = this.activeIsland.grid;
       const spawn = this._spawnPosition(grid);
-      this._nemesis.spawn(spawn.x, spawn.y, grid.startCell.key, grid.goalCell.key);
+      // Attack power scales every 3 levels: 10 @ L4, 15 @ L7, 20 @ L10 …
+      const tier        = Math.floor(Math.max(0, this.progression.level - 4) / 3);
+      const attackPower = 10 + tier * 5;
+      const attackRate  = 1;   // hits per second (constant for now)
+      this._nemesis.spawn(spawn.x, spawn.y, grid.startCell.key, grid.goalCell.key, attackPower, attackRate);
     }
 
     this._lockedAtGoal = false; // release goal lock — Nemesis phase, player may move freely
     this._closeBuildUI();
     this._runState = 'nemesis';
     this._showPhaseBanner('C — Attack!', 3.5, '#ff4466');
-    setTimeout(() => {
-      this._showTutorialToast("It's here. Stay close — the barricades will have to hold.", 7000);
-    }, 1500);
+    if (!localStorage.getItem('hexmaze_tut_phaseC')) {
+      setTimeout(() => {
+        this._showTutorialModal({
+          text:   "It's here. The Nemesis will destroy barricades in its way — survive until the timer runs out.",
+          assets: [
+            { imgSrc: 'ASSETS/NEMESIS/bronze_minotaur_full.png',              label: 'The Nemesis'    },
+            { imgSrc: 'ASSETS/BARRICADE/rotted_support_beam_full.png',        label: 'Your Barricades'},
+          ],
+        }, () => localStorage.setItem('hexmaze_tut_phaseC', '1'));
+      }, 1500);
+    }
     this._updateHUD();
   }
 
@@ -1457,29 +1524,25 @@ class GameLoop {
     const cell = grid.cells.get(this._buildTargetKey);
     if (!cell || cell.blockadeLevel > 0) return;
 
-    // Validate: at least one path must remain for the nemesis
-    const fromKey = this._nemesis.active
-      ? (this._nemesis.currentCellKey ?? grid.startCell.key)
-      : grid.startCell.key;
-
-    cell.isWalkable = false;
-    const testPath  = grid.findPath(fromKey, grid.goalCell.key);
-    if (testPath.length === 0) {
-      cell.isWalkable = true;
-      this._showBuildMessage('No valid path — placement blocked!');
-      this._closeBuildUI();
-      return;
-    }
-
+    // Barricades may block the nemesis completely — it will demolish them.
+    cell.isWalkable    = false;
     cell.blockadeLevel = 1;
+    cell.blockadeHp    = BARRICADE_HP;
     this._buildMaterial -= 1;
     this._nemesis.requestRepath();
     this._fogDirty = true;
 
-    // First barricade confirmation toast
-    if (!this._tutorialBarricadeShown) {
-      this._tutorialBarricadeShown = true;
-      setTimeout(() => this._showTutorialToast('Good. That should slow it down.', 5000), 400);
+    // First barricade — modal reminder about the nemesis attacking it
+    if (!localStorage.getItem('hexmaze_tut_barricade')) {
+      setTimeout(() => {
+        this._showTutorialModal({
+          text:   'Good. The Nemesis will try to break through — watch the health bar above each barricade.',
+          assets: [
+            { imgSrc: 'ASSETS/BARRICADE/rotted_support_beam_full.png',   label: 'Barricade'   },
+            { imgSrc: 'ASSETS/NEMESIS/bronze_minotaur_full.png',        label: 'The Nemesis' },
+          ],
+        }, () => localStorage.setItem('hexmaze_tut_barricade', '1'));
+      }, 400);
     }
 
     // Construction impact: camera shake + dust burst + HUD flash
@@ -1528,6 +1591,90 @@ class GameLoop {
     if (!el) return;
     clearTimeout(this._toastTimer);
     el.classList.remove('visible');
+  }
+
+  // ── Tutorial modal (pausing — must be clicked to dismiss) ──────────────────
+  // config: { text: string, assets?: [{ icon: string, label?: string }] }
+  // onDismiss: optional callback fired when the player clicks Continue.
+
+  _showTutorialModal(config, onDismiss) {
+    // Ignore new modal requests while one is already open
+    if (this._tutorialModalOpen) { onDismiss?.(); return; }
+
+    const modal = document.getElementById('tutorial-modal');
+    if (!modal) { onDismiss?.(); return; }
+
+    // Populate text
+    const textEl = modal.querySelector('.tut-text');
+    if (textEl) textEl.textContent = config.text;
+
+    // Populate asset icons
+    const assetsEl = modal.querySelector('.tut-assets');
+    if (assetsEl) {
+      assetsEl.innerHTML = '';
+      assetsEl.style.display = (config.assets?.length) ? '' : 'none';
+      for (const asset of (config.assets ?? [])) {
+        const wrap  = document.createElement('div');
+        wrap.className = 'tut-asset';
+        const iDiv  = document.createElement('div');
+        iDiv.className = 'tut-asset-icon';
+        if (asset.imgSrc) {
+          const img = document.createElement('img');
+          img.src   = asset.imgSrc;
+          iDiv.appendChild(img);
+        } else {
+          const svgStr = ICON_SVG[asset.icon];
+          iDiv.innerHTML = svgStr ?? `<span style="color:#c8a040;font-size:1.4em">?</span>`;
+        }
+        wrap.appendChild(iDiv);
+        if (asset.label) {
+          const lbl = document.createElement('div');
+          lbl.className   = 'tut-asset-label';
+          lbl.textContent = asset.label;
+          wrap.appendChild(lbl);
+        }
+        assetsEl.appendChild(wrap);
+      }
+    }
+
+    // Show modal, freeze game loop
+    this._tutorialModalOpen = true;
+    modal.classList.add('visible');
+    this._hideTutorialToast();
+
+    const dismiss = () => {
+      modal.classList.remove('visible');
+      this._tutorialModalOpen = false;
+      btn.removeEventListener('click', dismiss);
+      modal.removeEventListener('click', handleBackdrop);
+      onDismiss?.();
+    };
+    const handleBackdrop = (e) => { if (e.target === modal) dismiss(); };
+
+    const btn = modal.querySelector('.tut-continue');
+    btn?.addEventListener('click', dismiss);
+    modal.addEventListener('click', handleBackdrop);
+  }
+
+  // Helper: returns the ICON_SVG key for the current build material
+  _getMaterialIcon() {
+    const s = this._getBuildMaterialInfo().short;
+    return { PLANKS:'material-planks', SCRAP:'material-scrap',
+             RESIN:'material-resin',   PUMICE:'material-pumice',
+             ROCK:'material-bedrock' }[s] ?? 'material-planks';
+  }
+
+  // Helper: returns an img src path for the current build material
+  _getMaterialImgSrc() {
+    const s = this._getBuildMaterialInfo().short;
+    const map = {
+      PLANKS: 'ASSETS/BARRICADE/splintered_pine_board_full.png',
+      SCRAP:  'ASSETS/BARRICADE/bent_pipe_cluster_full.png',
+      RESIN:  'ASSETS/BARRICADE/fossilized_sap_block_full.png',
+      PUMICE: 'ASSETS/BARRICADE/porous_ash_boulder_full.png',
+      ROCK:   'ASSETS/BARRICADE/inert_granite_slab_full.png',
+    };
+    return map[s] ?? 'ASSETS/BARRICADE/discarded_crate_lid_full.png';
   }
 
   // ── Icon banner ────────────────────────────────────────────────────────────
@@ -1694,10 +1841,13 @@ class GameLoop {
     if (!island) return;
 
     // Re-render the island without fog for the archive view
+    const archDepthId = this._expeditionZone?.depthId ?? 'depth1';
+    const archDm      = this._imgMaterials[archDepthId] ?? this._imgMaterials.depth1;
     const archRenderer = new HexRenderer(island.canvas, {
       cellSize: this.cellSize, showPath: false, padding: 60, fogMode: false,
+      images: { coin: this._imgCoin, upgrade: this._imgUpgrade, matFull: archDm.full, matFrag: archDm.frag },
     });
-    archRenderer.render(island.grid);
+    archRenderer.render(island.grid, performance.now());
     island.worldLeft = archRenderer.worldLeft;
     island.worldTop  = archRenderer.worldTop;
 
@@ -1715,11 +1865,20 @@ class GameLoop {
     const isDepth5 = this._expeditionZone?.depthId === 'depth5';
     const prevInSight = isDepth5 ? new Set() : null;
 
+    // Dynamic fog (re-covers known terrain) only for depth3 and deeper.
+    // Depth1, depth2 and classic mode: once revealed, cells stay revealed.
+    const depthNum = this._expeditionZone
+      ? (MACRO_DEPTHS.findIndex(d => d.id === this._expeditionZone.depthId) + 1) || 1
+      : 0;
+    const dynamicFog = depthNum >= 3;
+
     // Downgrade IN_SIGHT → REVEALED for cells leaving the active radius
-    for (const cell of grid.cells.values()) {
-      if (cell.visibility === 2) {
-        if (isDepth5) prevInSight.add(cell.key);
-        cell.visibility = 1;
+    if (dynamicFog) {
+      for (const cell of grid.cells.values()) {
+        if (cell.visibility === 2) {
+          if (isDepth5) prevInSight.add(cell.key);
+          cell.visibility = 1;
+        }
       }
     }
 
@@ -1736,6 +1895,27 @@ class GameLoop {
       if (!cell) continue;
       cell.visibility = 2; // IN_SIGHT
       if (isDepth5) nowInSight.add(key);
+
+      // Ink-reveal animation: mark first-ever discovery
+      if (!cell._revealTime) {
+        cell._revealTime = performance.now();
+        // Tiny ink splatter near newly revealed cell (occasional, subtle)
+        if (Math.random() < 0.10) {
+          cell._inkSplatters = [];
+          const n = 1 + Math.floor(Math.random() * 2);   // 1–2 splatters
+          for (let i = 0; i < n; i++) {
+            const a = Math.random() * Math.PI * 2;
+            const d = (0.15 + Math.random() * 0.45) * this.cellSize;
+            cell._inkSplatters.push({
+              dx:    Math.cos(a) * d,
+              dy:    Math.sin(a) * d,
+              r:     2 + Math.random() * 2.5,  // tiny blob: 2–4.5 px core
+              angle: a,
+              seed:  Math.floor(Math.random() * 9999),
+            });
+          }
+        }
+      }
 
       const d = dist.get(key);
       if (d >= this.sightRange) continue;
@@ -1985,10 +2165,20 @@ class GameLoop {
   // Re-render active island offscreen canvas when fog state has changed.
   _flushFog() {
     if (!this._fogDirty || !this.activeIsland) return;
-    this._fogDirty = false;
-    this.activeIsland.renderer.render(this.activeIsland.grid);
+    const now = performance.now();
+    this.activeIsland.renderer.render(this.activeIsland.grid, now);
     this.activeIsland.worldLeft = this.activeIsland.renderer.worldLeft;
     this.activeIsland.worldTop  = this.activeIsland.renderer.worldTop;
+
+    // Stay dirty while newly revealed cells are still fading in (ink-appear animation)
+    let anyFading = false;
+    for (const cell of this.activeIsland.grid.cells.values()) {
+      if (cell._revealTime && (now - cell._revealTime) < 430) {
+        anyFading = true;
+        break;
+      }
+    }
+    if (!anyFading) this._fogDirty = false;
   }
 
   // ── RAF loop ───────────────────────────────────────────────────────────────
@@ -2046,6 +2236,9 @@ class GameLoop {
     const active = this._runState === 'playing' || this._runState === 'nemesis';
     if (!active || !this.activeIsland) return;
 
+    // Freeze all game timers while a tutorial modal is showing
+    if (this._tutorialModalOpen) { this._render(); return; }
+
     const grid = this.activeIsland.grid;
 
     // One-way door: block re-entry into archived islands
@@ -2077,6 +2270,11 @@ class GameLoop {
       }
       if (this.progression.level >= 4) {
         this._nemesis.update(dt, grid, this.cellSize);
+        // If the nemesis just destroyed a barricade, refresh fog + re-render island
+        if (this._nemesis.destroyedBarricade) {
+          this._nemesis.destroyedBarricade = false;
+          this._fogDirty = true;
+        }
         if (!this._levelCompleting) {
           // Nemesis reached the goal
           if (this._nemesis.reachedGoal) {
@@ -2160,9 +2358,15 @@ class GameLoop {
           cell.hasMaterial = false; cell.materialAmount = 0;
           this._fogDirty = true;
           const matInfo = this._getBuildMaterialInfo();
-          if (isFirst && this.progression.level >= 4 && !this._tutorialMaterialHinted) {
-            this._tutorialMaterialHinted = true;
-            this._showTutorialToast('Good — I can use this to block a passage. Keep moving.', 5000);
+          if (isFirst && this.progression.level >= 4 && !localStorage.getItem('hexmaze_tut_material')) {
+            this._showTutorialModal({
+              text:   'Good — I can use this to block a passage. Find a build spot and hold.',
+              assets: [
+                { imgSrc: this._getMaterialImgSrc(),                        label: matInfo.name },
+                { icon:   'spot',                                           label: 'Build Spot' },
+                { imgSrc: 'ASSETS/BARRICADE/rotted_support_beam_full.png',  label: 'Barricade'  },
+              ],
+            }, () => localStorage.setItem('hexmaze_tut_material', '1'));
           }
 
           // Floating "+N" text at the cell world position
@@ -2222,24 +2426,42 @@ class GameLoop {
           this._buildPhaseUnlocked = true;
           this._lockedAtGoal       = true;
           this._showPhaseBanner('B — Build', 3.5, '#ffd23f');
-          // Arriving message — immediate
-          this._showTutorialToast(
-            "I found it. But something is closing in fast. I can’t leave — I need to seal the way in.",
-            0  // persist until next toast replaces it
-          );
-          // Build instruction — delayed so player reads the arriving message first
-          setTimeout(() => {
-            if (!this._tutorialBuildHinted) {
-              this._tutorialBuildHinted = true;
-              const hasScrap = this._buildMaterial > 0;
-              this._showTutorialToast(
-                hasScrap
-                  ? 'Those marked passages — tap and hold to pile up a barricade.'
-                  : 'I need materials to block the way, but there’s no time to go back. I’ll have to hold out.',
-                0
-              );
-            }
-          }, 2400);
+          // Arrival modal — pauses timer; build instruction shown on dismiss
+          if (!localStorage.getItem('hexmaze_tut_phaseB')) {
+            this._showTutorialModal(
+              {
+                text:   "I found it. But something is closing in fast. I can't leave — I need to seal the passages before it arrives.",
+                assets: [
+                  { imgSrc: 'ASSETS/NEMESIS/bronze_minotaur_full.png', label: 'The Nemesis' },
+                  { icon:   'spot',                                     label: 'Build Spots' },
+                ],
+              },
+              () => {
+                localStorage.setItem('hexmaze_tut_phaseB', '1');
+                // Build instruction — shown immediately when player dismisses arrival modal
+                if (!localStorage.getItem('hexmaze_tut_build')) {
+                  const hasScrap = this._buildMaterial > 0;
+                  const matName  = this._getBuildMaterialInfo().name;
+                  this._showTutorialModal(
+                    hasScrap
+                      ? {
+                          text:   'Find the marked build spots and tap-and-hold to erect a barricade. The Nemesis will try to break through — buy as much time as you can.',
+                          assets: [
+                            { icon:   'spot',                                             label: 'Build Spot' },
+                            { imgSrc: this._getMaterialImgSrc(),                         label: matName      },
+                            { imgSrc: 'ASSETS/BARRICADE/rotted_support_beam_full.png',   label: 'Barricade'  },
+                          ],
+                        }
+                      : {
+                          text:   "No materials — I'll have to hold out without barricades. Find a way to survive until the timer runs out.",
+                          assets: [],
+                        },
+                    () => localStorage.setItem('hexmaze_tut_build', '1')
+                  );
+                }
+              }
+            );
+          }
           if (!this._buildHintShown) {
             this._buildHintShown = true;
             this._showBuildHint();
@@ -2270,8 +2492,7 @@ class GameLoop {
     const W   = this.viewportW;
     const H   = this.viewportH;
 
-    ctx.fillStyle = '#06060f';
-    ctx.fillRect(0, 0, W, H);
+    ctx.clearRect(0, 0, W, H);
 
     // Camera shake offset
     const shakeX = this._shakeTimer > 0 ? (Math.random() - 0.5) * 2 * this._shakeIntensity : 0;
@@ -2297,6 +2518,7 @@ class GameLoop {
       this._renderPlayer(ctx);
       if (this._runState === 'nemesis' && this._nemesis.active) {
         this._renderNemesis(ctx);
+        this._renderBarricadeHP(ctx);
       }
       this._renderHazardOverlays(ctx);
     } else if (this._runState === 'peeking') {
@@ -2424,40 +2646,80 @@ class GameLoop {
     }
 
     ctx.save();
-    const grd = ctx.createRadialGradient(px, py, 0, px, py, r * 3.2);
-    grd.addColorStop(0, 'rgba(255,210,50,0.38)');
-    grd.addColorStop(1, 'rgba(255,210,50,0)');
-    ctx.beginPath(); ctx.arc(px, py, r * 3.2, 0, Math.PI * 2);
-    ctx.fillStyle = grd; ctx.fill();
-    ctx.beginPath(); ctx.arc(px, py, r, 0, Math.PI * 2);
-    ctx.fillStyle   = '#ffd23f';
-    ctx.shadowColor = '#ffd23f';
-    ctx.shadowBlur  = 14; ctx.fill();
-    ctx.shadowBlur  = 0;
-    ctx.beginPath(); ctx.arc(px - r * 0.28, py - r * 0.28, r * 0.28, 0, Math.PI * 2);
-    ctx.fillStyle = 'rgba(255,255,255,0.55)'; ctx.fill();
+    const spriteH = r * 3.8;
+    if (this._imgPlayer?.complete && this._imgPlayer.naturalWidth > 0) {
+      ctx.filter = 'drop-shadow(2px 4px 4px rgba(0,0,0,0.40))';
+      ctx.drawImage(this._imgPlayer,
+        px - spriteH / 2, py - spriteH * 0.85, spriteH, spriteH);
+      ctx.filter = 'none';
+    } else {
+      // Fallback: glowing circle
+      const grd = ctx.createRadialGradient(px, py, 0, px, py, r * 3.2);
+      grd.addColorStop(0, 'rgba(255,210,50,0.38)');
+      grd.addColorStop(1, 'rgba(255,210,50,0)');
+      ctx.beginPath(); ctx.arc(px, py, r * 3.2, 0, Math.PI * 2);
+      ctx.fillStyle = grd; ctx.fill();
+      ctx.beginPath(); ctx.arc(px, py, r, 0, Math.PI * 2);
+      ctx.fillStyle = '#ffd23f'; ctx.shadowColor = '#ffd23f';
+      ctx.shadowBlur = 14; ctx.fill(); ctx.shadowBlur = 0;
+    }
     ctx.restore();
   }
 
   _renderNemesis(ctx) {
     const n = this._nemesis, r = n.radius;
     ctx.save();
-    const grd = ctx.createRadialGradient(n.worldX, n.worldY, 0, n.worldX, n.worldY, r * 3.5);
-    grd.addColorStop(0, 'rgba(255,68,102,0.50)');
-    grd.addColorStop(1, 'rgba(255,68,102,0)');
-    ctx.beginPath(); ctx.arc(n.worldX, n.worldY, r * 3.5, 0, Math.PI * 2);
-    ctx.fillStyle = grd; ctx.fill();
-    ctx.beginPath(); ctx.arc(n.worldX, n.worldY, r, 0, Math.PI * 2);
-    ctx.fillStyle   = '#ff4466';
-    ctx.shadowColor = '#ff4466';
-    ctx.shadowBlur  = 20; ctx.fill();
-    ctx.shadowBlur  = 0;
-    // Label
-    ctx.fillStyle    = '#fff';
-    ctx.font         = `bold ${Math.round(r * 0.9)}px monospace`;
-    ctx.textAlign    = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText('N', n.worldX, n.worldY);
+    const spriteH = r * 3.8;
+    if (this._imgNemesis?.complete && this._imgNemesis.naturalWidth > 0) {
+      ctx.filter = 'drop-shadow(2px 4px 5px rgba(160,0,30,0.65))';
+      ctx.drawImage(this._imgNemesis,
+        n.worldX - spriteH / 2, n.worldY - spriteH * 0.85, spriteH, spriteH);
+      ctx.filter = 'none';
+    } else {
+      // Fallback: red circle with N
+      const grd = ctx.createRadialGradient(n.worldX, n.worldY, 0, n.worldX, n.worldY, r * 3.5);
+      grd.addColorStop(0, 'rgba(255,68,102,0.50)');
+      grd.addColorStop(1, 'rgba(255,68,102,0)');
+      ctx.beginPath(); ctx.arc(n.worldX, n.worldY, r * 3.5, 0, Math.PI * 2);
+      ctx.fillStyle = grd; ctx.fill();
+      ctx.beginPath(); ctx.arc(n.worldX, n.worldY, r, 0, Math.PI * 2);
+      ctx.fillStyle = '#ff4466'; ctx.shadowColor = '#ff4466';
+      ctx.shadowBlur = 20; ctx.fill(); ctx.shadowBlur = 0;
+      ctx.fillStyle = '#fff';
+      ctx.font = `bold ${Math.round(r * 0.9)}px monospace`;
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText('N', n.worldX, n.worldY);
+    }
+    ctx.restore();
+  }
+
+  // Draw HP bars above barricades that have taken damage (world space, camera transform active)
+  _renderBarricadeHP(ctx) {
+    const grid = this.activeIsland?.grid;
+    if (!grid) return;
+    const cs   = this.cellSize;
+    ctx.save();
+    for (const cell of grid.cells.values()) {
+      if (cell.blockadeLevel === 0) continue;
+      const hp    = cell.blockadeHp ?? BARRICADE_HP;
+      if (hp >= BARRICADE_HP) continue;   // undamaged — no bar
+      const { x, y } = HexMath.toPixel(cell.q, cell.r, cs);
+      const barW  = cs * 0.85;
+      const barH  = 4;
+      const barX  = x - barW / 2;
+      const barY  = y - cs * 0.70;
+      const pct   = Math.max(0, hp / BARRICADE_HP);
+      // Background track
+      ctx.fillStyle = 'rgba(0,0,0,0.55)';
+      ctx.fillRect(barX, barY, barW, barH);
+      // HP fill — gold→orange→red as HP drains
+      ctx.fillStyle = pct > 0.6 ? '#ffd23f' : pct > 0.3 ? '#ff8844' : '#cc2211';
+      ctx.fillRect(barX, barY, barW * pct, barH);
+      // Border
+      ctx.strokeStyle = 'rgba(255,255,255,0.22)';
+      ctx.lineWidth = 0.5;
+      ctx.strokeRect(barX, barY, barW, barH);
+    }
     ctx.restore();
   }
 

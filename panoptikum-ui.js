@@ -78,6 +78,32 @@ class PanoptikumHub {
       this._showGlobalUI();
       this._setNavActive('view-a');
       this._syncScore();
+      if (typeof OnboardingManager !== 'undefined') {
+        const prevSeen = OnboardingManager.isSeen('seenWorldMap');
+        OnboardingManager.trigger('seenWorldMap', {
+          title: 'The World Map',
+          icon:  '⬡',
+          lore:  'The labyrinth network spreads far beneath the old city. Each marked site is an independent expedition — catalogued by depth, but never fully mapped.',
+          rules: [
+            'Select a zone to begin an expedition, or study its known data first.',
+            '<strong>Deeper zones</strong> yield rarer artifacts but the mazes grow more complex.',
+            'Completing a zone for the first time unlocks permanent score bonuses and may reveal adjacent sites.',
+          ],
+        });
+        const inv = this._collection?.state?.inventory;
+        if (prevSeen && inv?.length > 0) {
+          OnboardingManager.trigger('seenWorldMapWithArtifact', {
+            title: 'The Map Reveals More',
+            icon:  '⬡',
+            lore:  'Your recovered artifacts hint at the geography of the labyrinth. Each zone\'s depth corresponds to the tier of artifacts found there.',
+            rules: [
+              '<strong>Tier I artifacts</strong> spawn in depth 1 zones, <strong>Tier II</strong> in depth 2, and so on.',
+              'Return to a completed zone to farm a specific artifact type for research or Market sales.',
+              'New zones unlock as you complete adjacent expeditions — the map grows with your investigations.',
+            ],
+          });
+        }
+      }
     });
   }
 
@@ -92,6 +118,32 @@ class PanoptikumHub {
       this._showGlobalUI();
       this._setNavActive('view-b');
       this._syncScore();
+      if (typeof OnboardingManager !== 'undefined') {
+        const prevSeen = OnboardingManager.isSeen('seenExpeditions');
+        OnboardingManager.trigger('seenExpeditions', {
+          title: 'Expedition Sites',
+          icon:  '⬡',
+          lore:  'These are the surveyed sites within a depth tier — each with partial records, and each concealing more than the dossier admits.',
+          rules: [
+            'Select a site and read its dossier, then <strong>launch the expedition</strong>.',
+            'Sites completed with a <strong>high score</strong> earn bonus Pano-Gold on the first run.',
+            'Some sites are sealed until adjacent routes have been established.',
+          ],
+        });
+        const inv = this._collection?.state?.inventory;
+        if (prevSeen && inv?.length > 0) {
+          OnboardingManager.trigger('seenExpeditionsWithArtifact', {
+            title: 'Plan Your Next Descent',
+            icon:  '⬡',
+            lore:  'With artifacts already in hand, you have a sense of what the labyrinth yields. Plan your next expedition accordingly.',
+            rules: [
+              'Completing zones for the first time always earns higher rewards than revisiting.',
+              '<strong>Match your research needs</strong> to the artifact types available in each zone.',
+              'The further you push into unknown depths, the rarer — and more valuable — your finds will be.',
+            ],
+          });
+        }
+      }
     });
   }
 
@@ -218,21 +270,10 @@ class PanoptikumHub {
         </div>
         <!-- View: Equipment / Loadout -->
         <div id="pano-view-equip">
-          <div id="equip-header">
-            <span id="equip-header-title">⚔ Antiquarian's Loadout</span>
-            <span id="equip-header-sub">Equipped items grant effects during expeditions.</span>
-          </div>
-          <div id="equip-content-row">
-            <div id="equip-slots-col">
-              <div class="equip-slots-grid" id="equip-slots-area"></div>
-            </div>
-            <div id="equip-figure-col">
-              <img id="equip-antiquarian-img" src="ASSETS/ANTIQUARIANS/the_rugged_explorer_full.png" alt="Antiquarian">
-            </div>
-            <div id="equip-inv-col">
-              <div class="lab-col-title">Cabinet of Curiosities</div>
-              <div id="equip-inv-grid"></div>
-            </div>
+          <div id="equip-slot-overlay"></div>
+          <div id="equip-inv-panel">
+            <div class="lab-col-title">Cabinet of Curiosities</div>
+            <div id="equip-inv-grid"></div>
           </div>
         </div>
         <!-- Views A & B are rendered by the expedition overlay (z-1000) above this -->
@@ -278,22 +319,12 @@ class PanoptikumHub {
       this._onLabNavClick();
     });
     ui.querySelector('#btn-nav-market').addEventListener('click', () => {
-      OnboardingManager.trigger('seenMarket', {
-        title: 'The Antiquities Exchange',
-        icon: '✦',
-        lore: 'Word travels fast among the city\'s collectors. A booth in the Bourgeois Arcade awaits — but the right buyer takes time to find.',
-        rules: [
-          '<strong>List artifacts</strong> by dragging them into a Market slot.',
-          'Sales complete on a <strong>timer</strong> — check back for your gold.',
-          '<strong>Upgrades</strong> in the right column speed up sales or increase payouts.',
-          'Cursed artifacts cannot be listed without the Smuggler\'s Backdoor.',
-        ],
-      });
       this._fadeTransition(() => this.showMarket());
     });
     ui.querySelector('#btn-nav-equipment').addEventListener('click', () => {
       this._fadeTransition(() => this.showEquip());
     });
+
     ui.querySelector('#btn-nav-view-a').addEventListener('click', () => {
       this.showViewA();
     });
@@ -1324,6 +1355,32 @@ class PanoptikumHub {
     this._setNavActive('laboratory');
     this._stopVisitorAnimation();
     this._syncLabUI();
+    if (typeof OnboardingManager !== 'undefined') {
+      const prevSeen = OnboardingManager.isSeen('seenLaboratory');
+      OnboardingManager.trigger('seenLaboratory', {
+        title: 'The Laboratory',
+        icon:  '⚗',
+        lore:  'The research chambers now open before you. This is where the secrets of recovered artifacts can be methodically extracted.',
+        rules: [
+          'Drag artifacts into the <strong>research slots</strong> — they accumulate Research Points (RP) over time.',
+          'Spend RP in the knowledge tree to unlock hidden properties and arcane data about artifact types.',
+          'Unlocked discoveries raise <strong>exhibition appeal</strong>, increasing passive Panoptikum income.',
+        ],
+      });
+      const inv = this._collection?.state?.inventory;
+      if (prevSeen && inv?.length > 0) {
+        OnboardingManager.trigger('seenLabWithArtifact', {
+          title: 'First Specimen Ready',
+          icon:  '⚗',
+          lore:  'You have returned with something worth studying. The research stations await — slot your finds and let the analysis begin.',
+          rules: [
+            'Each artifact in a research slot generates RP continuously.',
+            '<strong>Higher-tier artifacts</strong> yield RP faster and unlock deeper discoveries.',
+            'Removing an artifact from its slot does not erase accumulated RP — progress is retained.',
+          ],
+        });
+      }
+    }
   }
 
   showEquip() {
@@ -1341,6 +1398,32 @@ class PanoptikumHub {
     this._stopVisitorAnimation();
     this._buildEquipSlots();
     this._syncEquipUI();
+    if (typeof OnboardingManager !== 'undefined') {
+      const prevSeen = OnboardingManager.isSeen('seenEquipment');
+      OnboardingManager.trigger('seenEquipment', {
+        title: "The Antiquarian's Loadout",
+        icon:  '⚔',
+        lore:  'Every descent into the labyrinth is a calculated risk. The relics you carry can mean the difference between escape and ruin.',
+        rules: [
+          'Drag items into equipment slots <strong>before starting</strong> an expedition.',
+          'Each equipped item grants a passive or active effect during the maze run.',
+          'Items cannot be swapped mid-expedition — choose carefully before you enter.',
+        ],
+      });
+      const inv = this._collection?.state?.inventory;
+      if (prevSeen && inv?.length > 0) {
+        OnboardingManager.trigger('seenEquipWithArtifact', {
+          title: 'Something to Carry',
+          icon:  '⚔',
+          lore:  'Among your recovered relics, some may prove useful in the field. Equip them here before your next descent.',
+          rules: [
+            'Drag a recovered item into an equipment slot to equip it.',
+            'Check the item <strong>dossier</strong> for its exact effect — some bonuses only activate under specific conditions.',
+            'Cursed items carry side effects. Read carefully before equipping.',
+          ],
+        });
+      }
+    }
   }
 
   showMarket() {
@@ -1358,26 +1441,91 @@ class PanoptikumHub {
     this._stopVisitorAnimation();
     this._buildMarketSlots();
     this._syncMarketUI();
+    if (typeof OnboardingManager !== 'undefined') {
+      const prevSeen = OnboardingManager.isSeen('seenMarket');
+      OnboardingManager.trigger('seenMarket', {
+        title: 'The Antiquities Exchange',
+        icon:  '✦',
+        lore:  "Word travels fast among the city's collectors. A booth in the Bourgeois Arcade awaits — but the right buyer takes time to find.",
+        rules: [
+          '<strong>List artifacts</strong> by dragging them into a Market slot.',
+          'Sales complete on a <strong>timer</strong> — check back to collect your gold.',
+          '<strong>Upgrades</strong> in the right column speed up sales or increase payouts.',
+          "Cursed artifacts cannot be listed without the Smuggler's Backdoor.",
+        ],
+      });
+      const inv = this._collection?.state?.inventory;
+      if (prevSeen && inv?.length > 0) {
+        OnboardingManager.trigger('seenMarketWithArtifact', {
+          title: 'Buyers Are Waiting',
+          icon:  '✦',
+          lore:  'Word has reached the collectors. Drag a recovered artifact into a Market slot — the right buyer will surface, eventually.',
+          rules: [
+            'Sales complete on a timer. Check back to <strong>collect your gold</strong>.',
+            'Upgrades in the right column can speed up sales or <strong>increase the payout</strong>.',
+            'Cursed items require the <strong>Smuggler\'s Backdoor</strong> upgrade before they can be listed.',
+          ],
+        });
+      }
+    }
   }
 
   _buildEquipSlots() {
-    const area = document.getElementById('equip-slots-area');
-    if (!area) return;
-    area.innerHTML = '';
+    const overlay = document.getElementById('equip-slot-overlay');
+    if (!overlay) return;
+    overlay.innerHTML = '';
     this._equipSlotEls = {};
     for (const slotType of PanoptikumCollection.EQUIP_SLOT_TYPES) {
-      const info  = (typeof EQUIP_SLOTS !== 'undefined' && EQUIP_SLOTS[slotType]) || { label: slotType, icon: '▪' };
-      const el    = document.createElement('div');
-      el.className       = 'equip-slot';
+      const el = document.createElement('div');
+      el.className = 'equip-photo-slot';
       el.dataset.slotType = slotType;
-      el.innerHTML = `<div class="equip-slot-label">${info.icon} ${info.label}</div><div class="equip-slot-inner"></div>`;
-      area.appendChild(el);
+      overlay.appendChild(el);
       el.addEventListener('contextmenu', e => {
         e.preventDefault();
         this._collection.unequipSlot(slotType);
         this._syncEquipUI();
+        this._syncCollectionUI();
       });
       this._equipSlotEls[slotType] = el;
+    }
+    if (!this._equipResizeObserver) {
+      const container = document.getElementById('pano-view-equip');
+      if (container) {
+        this._equipResizeObserver = new ResizeObserver(() => this._positionEquipSlots());
+        this._equipResizeObserver.observe(container);
+      }
+    }
+    this._positionEquipSlots();
+  }
+
+  _positionEquipSlots() {
+    const container = document.getElementById('pano-view-equip');
+    if (!container || !this._equipSlotEls) return;
+    const cW = container.offsetWidth;
+    const cH = container.offsetHeight;
+    if (!cW || !cH) return;
+    // Background image: 2816×1536, background-size: cover, background-position: left top
+    const IMG_W = 2816, IMG_H = 1536;
+    const scale = Math.max(cW / IMG_W, cH / IMG_H);
+    const dW = IMG_W * scale;
+    const dH = IMG_H * scale;
+    // Copper slot column x=484..770, dividers at y=216,395,575,756,936,1116,1296
+    const SLOTS = [
+      { type: 'head',  x: 484, y: 216,  w: 286, h: 179 },
+      { type: 'eyes',  x: 484, y: 395,  w: 286, h: 180 },
+      { type: 'face',  x: 484, y: 575,  w: 286, h: 181 },
+      { type: 'hands', x: 484, y: 756,  w: 286, h: 180 },
+      { type: 'tool',  x: 484, y: 936,  w: 286, h: 180 },
+      { type: 'pouch', x: 484, y: 1116, w: 286, h: 180 },
+      { type: 'boots', x: 484, y: 1296, w: 286, h: 180 },
+    ];
+    for (const s of SLOTS) {
+      const el = this._equipSlotEls[s.type];
+      if (!el) continue;
+      el.style.left   = (s.x / IMG_W * dW).toFixed(1) + 'px';
+      el.style.top    = (s.y / IMG_H * dH).toFixed(1) + 'px';
+      el.style.width  = (s.w / IMG_W * dW).toFixed(1) + 'px';
+      el.style.height = (s.h / IMG_H * dH).toFixed(1) + 'px';
     }
   }
 

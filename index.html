@@ -8,7 +8,7 @@
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
     body {
-      background: #0d0d1a;
+      background: #1a100a;
       color: #c8d6e5;
       font-family: 'Courier New', monospace;
       display: flex;
@@ -110,23 +110,41 @@
     }
     #play-bar.visible { display: flex; flex-wrap: wrap; justify-content: center; }
 
-    /* ── Canvas wrapper ── */
-    #canvas-wrap { position: relative; display: inline-block; overflow: auto; max-width: 100%; }
+    /* ── Canvas wrapper — aged parchment background ── */
+    #canvas-wrap {
+      position: relative; display: inline-block; overflow: auto; max-width: 100%;
+      /* Layered parchment: corner aging stains + edge vignette + base gradient */
+      background:
+        radial-gradient(ellipse at 7%  90%, rgba(68,38,12,0.24) 0%, transparent 46%),
+        radial-gradient(ellipse at 93%  8%, rgba(60,34,10,0.20) 0%, transparent 42%),
+        radial-gradient(ellipse at 50% 50%, transparent 34%, rgba(50,26,8,0.52) 100%),
+        radial-gradient(ellipse at 50% 42%, #f4ebd8 0%, #e8d8b8 45%, #d4c4a8 100%);
+      border-radius: 4px;
+    }
+    /* Two-layer paper texture: anisotropic fibers (horizontal grain) + large aging stains */
+    #canvas-wrap::before {
+      content: '';
+      position: absolute; inset: 0; z-index: 0; pointer-events: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='300'%3E%3Cdefs%3E%3Cfilter id='fibers'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.030 0.095' numOctaves='6' seed='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Cfilter id='stains'%3E%3CfeTurbulence type='turbulence' baseFrequency='0.018 0.024' numOctaves='4' seed='11' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3C/defs%3E%3Crect width='100%25' height='100%25' filter='url(%23fibers)'/%3E%3Crect width='100%25' height='100%25' filter='url(%23stains)' opacity='0.42'/%3E%3C/svg%3E");
+      opacity: 0.16;
+      mix-blend-mode: multiply;
+    }
     body.play-mode #canvas-wrap { overflow: hidden; width: 100%; }
-    canvas { display: block; }
+    /* Canvas transparent so parchment shows through; multiply lets ink interact with paper grain */
+    canvas { display: block; background: transparent; position: relative; z-index: 1; mix-blend-mode: multiply; }
 
     /* ── HUD ── */
     #hud {
       display: none; position: absolute; top: 12px; left: 12px;
-      background: rgba(6,6,15,0.82); border: 1px solid rgba(0,212,255,0.25);
-      border-radius: 8px; padding: 10px 16px; pointer-events: none;
+      background: rgba(26,14,6,0.78); border: 1px solid rgba(180,140,80,0.35);
+      border-radius: 6px; padding: 10px 16px; pointer-events: none;
       font-size: 0.78rem; line-height: 1.85; letter-spacing: 0.06em;
     }
     #hud.visible { display: block; }
     .hud-row { display: flex; justify-content: space-between; gap: 18px; }
-    .hud-label { color: #4a9eff; }
-    .hud-value { color: #c8d6e5; font-weight: bold; }
-    .hud-value.gold { color: #ffd23f; }
+    .hud-label { color: #c8a060; }
+    .hud-value { color: #f4ebd8; font-weight: bold; }
+    .hud-value.gold { color: #e8b840; }
 
     @keyframes hud-flash {
       0%   { color: #ffd23f; text-shadow: 0 0 14px #ffd23f; transform: scale(1.35); }
@@ -137,8 +155,8 @@
     /* ── Controls hint ── */
     #controls-hint {
       display: none; position: absolute; bottom: 12px; right: 12px;
-      background: rgba(6,6,15,0.72); border: 1px solid rgba(74,158,255,0.15);
-      border-radius: 6px; padding: 8px 12px; font-size: 0.66rem; color: #445566;
+      background: rgba(26,14,6,0.70); border: 1px solid rgba(180,140,80,0.20);
+      border-radius: 6px; padding: 8px 12px; font-size: 0.66rem; color: #8a7055;
       line-height: 1.6; pointer-events: none;
     }
     #controls-hint.visible { display: block; }
@@ -146,7 +164,7 @@
     /* ── Shared overlay base ── */
     .game-overlay {
       display: none; position: absolute; inset: 0;
-      background: rgba(6,6,15,0.92);
+      background: rgba(20,10,4,0.93);
       backdrop-filter: blur(4px);
       flex-direction: column; align-items: center; justify-content: flex-start;
       gap: 0; padding: 10px 14px; z-index: 10; text-align: center;
@@ -354,6 +372,74 @@
     }
     #tutorial-toast.visible { opacity: 1; }
 
+    /* ── Tutorial modal (pausing, click-to-dismiss) ── */
+    #tutorial-modal {
+      display: none; position: fixed;
+      inset: 0; z-index: 300;
+      align-items: center; justify-content: center;
+      background: rgba(4,3,12,0.72);
+      backdrop-filter: blur(2px);
+    }
+    #tutorial-modal.visible { display: flex; }
+    .tut-box {
+      background: rgba(14,10,28,0.97);
+      border: 1px solid rgba(200,160,70,0.45);
+      border-left: 4px solid #c8a040;
+      border-radius: 6px;
+      padding: 28px 32px 22px;
+      max-width: 500px; width: calc(100% - 40px);
+      text-align: center;
+      animation: tut-appear 0.22s ease-out both;
+      box-shadow: 0 8px 40px rgba(0,0,0,0.65);
+    }
+    @keyframes tut-appear {
+      from { opacity:0; transform:translateY(-14px) scale(0.97); }
+      to   { opacity:1; transform:translateY(0)      scale(1);    }
+    }
+    .tut-text {
+      font-family: 'Georgia','Times New Roman',serif;
+      font-style: italic; font-size: 1.05rem; line-height: 1.75;
+      color: #e8d8b0; margin: 0 0 18px;
+    }
+    .tut-assets {
+      display: flex; justify-content: center; gap: 22px;
+      margin: 0 0 22px; flex-wrap: wrap;
+    }
+    .tut-asset {
+      display: flex; flex-direction: column;
+      align-items: center; gap: 5px;
+    }
+    .tut-asset-icon {
+      width: 48px; height: 48px;
+      background: rgba(200,160,70,0.06);
+      border: 1px solid rgba(200,160,70,0.20);
+      border-radius: 6px;
+      display: flex; align-items: center; justify-content: center;
+      padding: 4px;
+    }
+    .tut-asset-icon svg, .tut-asset-icon img {
+      width: 100%; height: 100%; object-fit: contain;
+    }
+    .tut-asset-label {
+      font-size: 0.60rem; letter-spacing: 0.07em;
+      color: rgba(200,160,70,0.55); text-transform: uppercase;
+      font-family: monospace;
+    }
+    .tut-continue {
+      background: none;
+      border: 1px solid rgba(200,160,70,0.50);
+      color: #c8a040;
+      font-family: 'Georgia',serif; font-style: italic;
+      font-size: 0.88rem; padding: 8px 28px;
+      border-radius: 3px; cursor: pointer;
+      letter-spacing: 0.06em;
+      transition: background 0.18s, color 0.18s, border-color 0.18s;
+    }
+    .tut-continue:hover {
+      background: rgba(200,160,70,0.14); color: #e8d060;
+      border-color: rgba(200,160,70,0.80);
+    }
+
     /* ── Build action hint ── */
     #build-hint {
       display: none; position: absolute; z-index: 8;
@@ -481,8 +567,17 @@
     <!-- Placement-rejected message -->
     <div id="build-message"></div>
 
-    <!-- Atmospheric tutorial hints -->
+    <!-- Atmospheric tutorial hints (minor, non-pausing) -->
     <div id="tutorial-toast"></div>
+
+    <!-- Tutorial modal (pausing, must be dismissed) -->
+    <div id="tutorial-modal">
+      <div class="tut-box">
+        <p class="tut-text"></p>
+        <div class="tut-assets"></div>
+        <button class="tut-continue">— Understood —</button>
+      </div>
+    </div>
 
     <!-- Phase-B icon banner -->
     <div id="phase-icon-banner"></div>
@@ -859,7 +954,6 @@
     });
 
     // ── Boot ───────────────────────────────────────────────────────────────────
-    preloadGameSprites();
     generateAnalysis();
 
     document.addEventListener('DOMContentLoaded', () => {

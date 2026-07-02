@@ -740,6 +740,60 @@ class HexGridGenerator {
     return path;
   }
 
+  // ── A* with barricade destruction cost ───────────────────────────────────
+  // Like findPath but allows walking through barricade cells, treating
+  // demolition time (hp / attackDps) as extra traversal cost in seconds.
+  findPathDestructive(fromKey, toKey, attackDps) {
+    const goal = this.cells.get(toKey);
+    if (!goal) return [];
+
+    const h = key => HexMath.distance(this.cells.get(key), goal);
+
+    const open     = new Set([fromKey]);
+    const cameFrom = new Map();
+    const gScore   = new Map([[fromKey, 0]]);
+    const fScore   = new Map([[fromKey, h(fromKey)]]);
+
+    const lowestF = () => {
+      let best = null, bestF = Infinity;
+      for (const k of open) { const f = fScore.get(k) ?? Infinity; if (f < bestF) { bestF = f; best = k; } }
+      return best;
+    };
+
+    while (open.size) {
+      const current = lowestF();
+      if (current === toKey) return this._reconstructPath(cameFrom, current);
+      open.delete(current);
+      const cell = this.cells.get(current);
+      const g    = gScore.get(current);
+
+      for (let dir = 0; dir < 6; dir++) {
+        if (cell.walls[dir]) continue;
+        const nb     = HexMath.neighbor(cell.q, cell.r, cell.s, dir);
+        const nk     = HexMath.key(nb.q, nb.r, nb.s);
+        const nbCell = this.cells.get(nk);
+        if (!nbCell) continue;
+        // Skip permanently non-walkable cells that aren't barricades
+        if (!nbCell.isWalkable && nbCell.blockadeLevel === 0) continue;
+
+        let moveCost = nbCell.terrainWeight ?? 1;
+        // Barricade: add seconds needed to demolish it
+        if (nbCell.blockadeLevel > 0 && attackDps > 0) {
+          moveCost += (nbCell.blockadeHp ?? BARRICADE_HP) / attackDps;
+        }
+
+        const tentG = g + moveCost;
+        if (tentG < (gScore.get(nk) ?? Infinity)) {
+          cameFrom.set(nk, current);
+          gScore.set(nk, tentG);
+          fScore.set(nk, tentG + h(nk));
+          open.add(nk);
+        }
+      }
+    }
+    return [];
+  }
+
   // ── Articulation-point detection (DFS on open-passage graph) ─────────────
   // Returns a Set of cell keys that are cut vertices — removing one would
   // disconnect the maze graph. Used to exclude crumbling-floor candidates.

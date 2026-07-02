@@ -858,11 +858,12 @@ function _zoneNeighborIds(zoneId) {
 
 class ExpeditionMaps {
   constructor() {
-    this._onStart      = null;
-    this._activeZone   = null;
-    this._currentDepth = null;   // depth selected in micro view
-    this._overlay      = null;
-    this._state        = this._loadState();
+    this._onStart          = null;
+    this._activeZone       = null;
+    this._currentDepth     = null;   // depth selected in micro view
+    this._overlay          = null;
+    this._firstRevealZones = new Set(); // zones queued for first-time reveal animation
+    this._state            = this._loadState();
     this._applyState();
     this._buildDOM();
   }
@@ -901,9 +902,11 @@ class ExpeditionMaps {
     if (!zone) return;
 
     // Mark zone completed (re-play allowed; completed stays accessible)
+    const isFirstCompletion = !this._state.completedIds.includes(zoneId);
     zone.status = 'completed';
-    if (!this._state.completedIds.includes(zoneId)) {
+    if (isFirstCompletion) {
       this._state.completedIds.push(zoneId);
+      this._firstRevealZones.add(zoneId);  // queue the ceremonial reveal animation
     }
     this._state.availableIds = (this._state.availableIds || []).filter(id => id !== zoneId);
 
@@ -1475,6 +1478,27 @@ class ExpeditionMaps {
       }
       svg.appendChild(g);
     }
+
+    // ── Reveal-animation covers (first-time completions only) ─────────────
+    // Place an opaque parchment rect over each pending zone.  The animation
+    // plays on this cover while the final (full-color) SVG state is already
+    // rendered underneath — the cover simply fades away at the climax.
+    const pendingReveal = depthZones.filter(z => this._firstRevealZones.has(z.id));
+    for (const pz of pendingReveal) {
+      const pr = pz.mapRect;
+      this._firstRevealZones.delete(pz.id);  // consume so it only plays once
+      const cover = document.createElementNS(SVG_NS, 'rect');
+      cover.setAttribute('x',              pr.x);
+      cover.setAttribute('y',              pr.y);
+      cover.setAttribute('width',          pr.w);
+      cover.setAttribute('height',         pr.h);
+      cover.setAttribute('fill',           '#c4b08a');
+      cover.setAttribute('opacity',        '1');
+      cover.setAttribute('pointer-events', 'none');
+      svg.appendChild(cover);
+      // Small delay so the browser has painted the "before" state
+      setTimeout(() => this._playRevealAnimation(pz, cover, svg), 80);
+    }
   }
 
   /** Rebuild micro SVG in place (called after state changes). */
@@ -1488,6 +1512,183 @@ class ExpeditionMaps {
     if (ph)      ph.style.display      = '';
     const btn = document.getElementById('btn-start-expedition');
     if (btn) btn.disabled = true;
+  }
+
+  // ── First-reveal ceremony (4-second animation) ───────────────────────────────
+  //
+  // Plays on top of the already-correct final SVG state.  A parchment-coloured
+  // cover rect was placed over the zone in _buildMicroSVG; this method animates
+  // that cover (shake → brighten → flash + sparks → fade) until the full-colour
+  // photo is revealed underneath.
+
+  _playRevealAnimation(zone, coverEl, svg) {
+    if (!coverEl || !svg.contains(coverEl)) return;
+    const r   = zone.mapRect;
+    const cx  = r.x + r.w / 2;
+    const cy  = r.y + r.h / 2;
+    const ns  = SVG_NS;
+
+    // ── Animation-only group (removed at end) ────────────────────────────
+    const animG = document.createElementNS(ns, 'g');
+    animG.setAttribute('pointer-events', 'none');
+    svg.appendChild(animG);
+
+    // Add a blur filter for the bloom glow
+    const filtId = 'reveal-glow-f';
+    const defs   = svg.querySelector('defs');
+    let filtEl = null, feBlur = null;
+    if (defs) {
+      filtEl = document.createElementNS(ns, 'filter');
+      filtEl.setAttribute('id',     filtId);
+      filtEl.setAttribute('x',      '-40%'); filtEl.setAttribute('y',      '-40%');
+      filtEl.setAttribute('width',  '180%'); filtEl.setAttribute('height', '180%');
+      feBlur = document.createElementNS(ns, 'feGaussianBlur');
+      feBlur.setAttribute('stdDeviation', '0');
+      filtEl.appendChild(feBlur);
+      defs.appendChild(filtEl);
+    }
+
+    // Bloom halo (blurred white rect behind the cover)
+    const bloomEl = document.createElementNS(ns, 'rect');
+    bloomEl.setAttribute('x',      String(r.x - 80));
+    bloomEl.setAttribute('y',      String(r.y - 80));
+    bloomEl.setAttribute('width',  String(r.w + 160));
+    bloomEl.setAttribute('height', String(r.h + 160));
+    bloomEl.setAttribute('fill',   '#fffbe0');
+    bloomEl.setAttribute('opacity','0');
+    if (filtEl) bloomEl.setAttribute('filter', `url(#${filtId})`);
+    animG.appendChild(bloomEl);
+
+    // Move cover into the animation group (keeps it on top of bloom)
+    animG.appendChild(coverEl);
+
+    // Sparks container
+    const sparkG = document.createElementNS(ns, 'g');
+    animG.appendChild(sparkG);
+    const sparks = [];
+
+    // ── Parchment → white colour interpolation ────────────────────────────
+    const PAR = [196, 176, 138];
+    const WHT = [255, 255, 255];
+    const lerpRGB = (t) => PAR.map((a, i) => Math.round(a + (WHT[i] - a) * t));
+
+    // ── Timing ────────────────────────────────────────────────────────────
+    const TOTAL  = 4.0;   // total seconds
+    const P1_END = 2.5;   // end of shake phase
+    const P2_END = 3.2;   // end of flash peak (cover starts fading)
+    let elapsed  = 0;
+    let prevTS   = null;
+    let sparked  = false;
+
+    const frame = (ts) => {
+      if (!prevTS) prevTS = ts;
+      const dt = Math.min((ts - prevTS) / 1000, 0.05);
+      prevTS   = ts;
+      elapsed += dt;
+      const t  = Math.min(elapsed / TOTAL, 1.0);
+
+      // ── Phase 1: shake + brighten ─────────────────────────────────────
+      if (t < P1_END / TOTAL) {
+        const p   = t / (P1_END / TOTAL);               // 0 → 1
+        const amp = Math.pow(p, 1.9) * 30;              // grows to 30 SVG units
+        const dx  = (Math.random() * 2 - 1) * amp;
+        const dy  = (Math.random() * 2 - 1) * amp * 0.6;
+        coverEl.setAttribute('transform', `translate(${dx.toFixed(1)},${dy.toFixed(1)})`);
+
+        const [rr, gg, bb] = lerpRGB(Math.pow(p, 2.2) * 0.88);
+        coverEl.setAttribute('fill', `rgb(${rr},${gg},${bb})`);
+
+        if (feBlur) feBlur.setAttribute('stdDeviation', (p * 10).toFixed(1));
+        bloomEl.setAttribute('opacity', (p * 0.25).toFixed(3));
+      }
+
+      // ── Phase 2: flash peak ───────────────────────────────────────────
+      if (t >= P1_END / TOTAL && t < P2_END / TOTAL) {
+        const p = (t - P1_END / TOTAL) / ((P2_END - P1_END) / TOTAL); // 0→1
+
+        coverEl.setAttribute('transform', 'translate(0,0)');
+        coverEl.setAttribute('fill', 'white');
+
+        const bloom = p < 0.45 ? p / 0.45 : 1 - (p - 0.45) / 0.55;
+        if (feBlur) feBlur.setAttribute('stdDeviation', (10 + bloom * 65).toFixed(1));
+        bloomEl.setAttribute('opacity', (bloom * 0.88).toFixed(3));
+
+        // Spawn sparks once near flash peak
+        if (!sparked && p >= 0.28) {
+          sparked = true;
+          const count = 32 + Math.floor(Math.random() * 20);
+          for (let i = 0; i < count; i++) {
+            // Mostly from zone border, some from interior
+            let sx, sy;
+            if (Math.random() < 0.62) {
+              const side = i % 4;
+              if      (side === 0) { sx = r.x + Math.random() * r.w; sy = r.y; }
+              else if (side === 1) { sx = r.x + r.w; sy = r.y + Math.random() * r.h; }
+              else if (side === 2) { sx = r.x + Math.random() * r.w; sy = r.y + r.h; }
+              else                 { sx = r.x; sy = r.y + Math.random() * r.h; }
+            } else {
+              sx = cx + (Math.random() - 0.5) * r.w;
+              sy = cy + (Math.random() - 0.5) * r.h;
+            }
+            const ang   = Math.random() * Math.PI * 2;
+            const speed = 300 + Math.random() * 900;
+            const life  = 0.38 + Math.random() * 0.62;
+            const sz    = 3.5 + Math.random() * 17;
+            const el    = document.createElementNS(ns, 'ellipse');
+            el.setAttribute('rx', sz);
+            el.setAttribute('ry', sz * (0.18 + Math.random() * 0.35));
+            el.setAttribute('fill', '#fffbe0');
+            sparkG.appendChild(el);
+            sparks.push({
+              x: sx, y: sy,
+              vx: Math.cos(ang) * speed,
+              vy: Math.sin(ang) * speed - 80,
+              life, maxLife: life, sz, el,
+            });
+          }
+        }
+      }
+
+      // ── Phase 3: fade reveal ──────────────────────────────────────────
+      if (t >= P2_END / TOTAL) {
+        const p = (t - P2_END / TOTAL) / ((TOTAL - P2_END) / TOTAL); // 0→1
+        const op = Math.max(0, 1 - p * 1.35);
+        coverEl.setAttribute('opacity',  op.toFixed(3));
+        if (feBlur) feBlur.setAttribute('stdDeviation', (10 * (1 - p)).toFixed(1));
+        bloomEl.setAttribute('opacity', (0.15 * (1 - p)).toFixed(3));
+      }
+
+      // ── Update sparks ─────────────────────────────────────────────────
+      for (const sp of sparks) {
+        if (!sp.el) continue;
+        sp.x  += sp.vx * dt;
+        sp.y  += sp.vy * dt;
+        sp.vy += 2200 * dt;    // gravity
+        sp.vx *= 0.985;        // mild air drag
+        sp.life -= dt;
+        const pct = Math.max(0, sp.life / sp.maxLife);
+        if (pct <= 0) { sp.el.remove(); sp.el = null; continue; }
+        const h   = Math.round(55 * pct);          // yellow → red
+        const l   = Math.round(50 + 44 * pct);
+        const szN = sp.sz * (0.2 + pct * 0.8);
+        const ang = Math.atan2(sp.vy, sp.vx) * 180 / Math.PI;
+        sp.el.setAttribute('transform',
+          `translate(${sp.x.toFixed(0)},${sp.y.toFixed(0)}) rotate(${ang.toFixed(0)})`);
+        sp.el.setAttribute('rx',      szN.toFixed(1));
+        sp.el.setAttribute('ry',      (szN * 0.26).toFixed(1));
+        sp.el.setAttribute('opacity', (pct * 0.95).toFixed(2));
+        sp.el.setAttribute('fill',    `hsl(${h},100%,${l}%)`);
+      }
+
+      if (t < 1.0) {
+        requestAnimationFrame(frame);
+      } else {
+        animG.remove();
+        if (filtEl && defs?.contains(filtEl)) defs.removeChild(filtEl);
+      }
+    };
+
+    requestAnimationFrame(frame);
   }
 
   // ── Expedition info panel ─────────────────────────────────────────────────────

@@ -11,6 +11,7 @@ Please implement the following visual overhaul:
 - Replace the neon wall colors. Walls should now be rendered in a deep iron-gall ink color (e.g., dark black-brown `#2c1f14`).
 - Give the wall elements a very slight `border-radius` (e.g., 2px or 3px) so they look like thick lines drawn by a quill, rather than perfect digital vectors.
 - Walkable paths should be completely transparent, allowing the parchment background to show through.
+- Make sure the walls in the labyrinth can be seen from both sides of a wall - currently it can happen that a wall is only visible from one side and not the other. 
 
 ### 3. The "Self-Drawing" Fog of War
 - Update the exploration/visibility logic to feel like the map is being drawn in real-time.

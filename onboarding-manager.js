@@ -12,11 +12,23 @@ const OnboardingManager = (() => {
   const STORAGE_KEY = 'hexmaze_onboarding';
 
   const DEFAULT_STATE = {
+    // Existing mechanic discoveries
     seenMarket:          false,
     seenCrucible:        false,
     seenFirstCurse:      false,
     seenFactionConflict: false,
     seenTierMerge:       false,
+    // First-visit panel tutorials
+    seenLaboratory:      false,
+    seenEquipment:       false,
+    seenWorldMap:        false,
+    seenExpeditions:     false,
+    // First-visit-with-artifact tutorials (fire after first-visit, once collection is non-empty)
+    seenLabWithArtifact:        false,
+    seenMarketWithArtifact:     false,
+    seenEquipWithArtifact:      false,
+    seenWorldMapWithArtifact:   false,
+    seenExpeditionsWithArtifact:false,
   };
 
   let _state          = null;
