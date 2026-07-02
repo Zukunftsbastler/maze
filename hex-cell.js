@@ -28,6 +28,16 @@ class HexCell {
     this.hasArtifact   = false;
     this.artifactTypeId = null;
 
+    // Barricade material loot
+    this.hasMaterial    = false;
+    this.materialAmount = 0;
+
+    // Environmental hazards
+    this.isCrumbling    = false; // generator-set; floor collapses after player steps off
+    this.isVoid         = false; // runtime; crumble completed — impassable abyss
+    this.hasCavein      = false; // generator-set; must hold to clear
+    this.caveinDensity  = 0;     // 1–3; determines clearing duration
+
     // Generation bookkeeping
     this.visited = false;
     this.distFromCenter = 0;
@@ -57,6 +67,12 @@ class HexCell {
       blockadeLevel:  this.blockadeLevel,
       hasArtifact:    this.hasArtifact,
       artifactTypeId: this.artifactTypeId,
+      hasMaterial:    this.hasMaterial,
+      materialAmount: this.materialAmount,
+      isCrumbling:    this.isCrumbling,
+      isVoid:         this.isVoid,
+      hasCavein:      this.hasCavein,
+      caveinDensity:  this.caveinDensity,
     };
   }
 
@@ -75,6 +91,12 @@ class HexCell {
     cell.blockadeLevel  = data.blockadeLevel  ?? 0;
     cell.hasArtifact    = data.hasArtifact    ?? false;
     cell.artifactTypeId = data.artifactTypeId ?? null;
+    cell.hasMaterial    = data.hasMaterial    ?? false;
+    cell.materialAmount = data.materialAmount ?? 0;
+    cell.isCrumbling    = data.isCrumbling    ?? false;
+    cell.isVoid         = data.isVoid         ?? false;
+    cell.hasCavein      = data.hasCavein      ?? false;
+    cell.caveinDensity  = data.caveinDensity  ?? 0;
     return cell;
   }
 }

@@ -365,6 +365,13 @@ class GameLoop {
     this.sightRange = 4;
     this._fogDirty  = false;
 
+    // ── Environmental hazards ─────────────────────────────────────────────
+    this._crumblingTimers   = new Map(); // cellKey → seconds remaining before void
+    this._prevPlayerCellKey = null;      // detect cell-leave for crumbling activation
+    this._revealDecayTimers = new Map(); // cellKey → seconds (Depth 5 fading memory)
+    this._caveinProgress    = new Map(); // cellKey → { elapsed, total }
+    this._excavationBonus   = 0;         // cached per run; fractional time reduction
+
     // ── UI feedback timers ────────────────────────────────────────────────
     this._spawnAnimTimer   = 0;      // > 0 → expanding rings on player spawn
     this._phaseBannerText  = '';     // text shown in phase-transition banner
@@ -391,6 +398,13 @@ class GameLoop {
     this._shakeTimer     = 0;
     this._shakeIntensity = 0;
     this._iconBannerTimer = null;
+
+    // ── Tutorial toasts ───────────────────────────────────────────────────────
+    this._toastTimer             = null;  // auto-dismiss handle
+    this._tutorialMaterialHinted = false; // shown grab-material hint this run
+    this._tutorialBuildHinted    = false; // shown tap-hold-to-build hint this run
+    this._tutorialBarricadeShown = false; // shown first-barricade confirmation
+    this._lockedAtGoal           = false; // Phase B: player held at goal cell
 
     // ── Tutorial / Expedition ─────────────────────────────────────────────────
     this._tutorialCallback  = null;   // fired after level 3 "Next Level"
@@ -569,7 +583,7 @@ class GameLoop {
         if (!this._buildPhaseUnlocked && this.activeIsland &&
             (this._runState === 'playing' || this._runState === 'nemesis')) {
           if (this._isClickOnBuildableCell(e.clientX, e.clientY)) {
-            this._showBuildMessage('Erst das ZIEL (⬡ rot) erreichen, um bauen zu können!');
+            this._showBuildMessage('Reach the exit ⬡ first — then you can build!');
             return;
           }
         }
@@ -1127,6 +1141,20 @@ class GameLoop {
     this._runGoldBuffer     = 0;
     this._runArtifactIds     = []; // reset per-run tracking (commit previous run's artifacts)
 
+    // Hazard state reset
+    this._crumblingTimers.clear();
+    this._prevPlayerCellKey = null;
+    this._revealDecayTimers.clear();
+    this._caveinProgress.clear();
+    this._excavationBonus = this._getExcavationBonus();
+
+    // Tutorial state reset (per-run)
+    this._tutorialMaterialHinted = false;
+    this._tutorialBuildHinted    = false;
+    this._tutorialBarricadeShown = false;
+    this._lockedAtGoal           = false;
+    this._hideTutorialToast();
+
     // Hide build hint if it lingered from a previous Phase B
     if (this._buildHintVisible) {
       this._buildHintVisible = false;
@@ -1137,7 +1165,14 @@ class GameLoop {
     // Spawn-pulse animation + phase banner
     this._spawnAnimTimer = 2.5;
     if (this.progression.level >= 4) {
-      this._showPhaseBanner('A — Erkunden', 3.5, '#4a9eff');
+      this._showPhaseBanner('A — Explore', 3.5, '#4a9eff');
+      // Phase A tutorial hint — fires after the banner fades
+      setTimeout(() => {
+        this._showTutorialToast(
+          'Something has taken notice of me. Move fast — and grab any materials you find.',
+          7000
+        );
+      }, 2000);
     }
 
     // Setup timer for nemesis-enabled levels
@@ -1341,9 +1376,13 @@ class GameLoop {
       this._nemesis.spawn(spawn.x, spawn.y, grid.startCell.key, grid.goalCell.key);
     }
 
+    this._lockedAtGoal = false; // release goal lock — Nemesis phase, player may move freely
     this._closeBuildUI();
     this._runState = 'nemesis';
-    this._showPhaseBanner('C — Angriff!', 3.5, '#ff4466');
+    this._showPhaseBanner('C — Attack!', 3.5, '#ff4466');
+    setTimeout(() => {
+      this._showTutorialToast("It's here. Stay close — the barricades will have to hold.", 7000);
+    }, 1500);
     this._updateHUD();
   }
 
@@ -1437,6 +1476,12 @@ class GameLoop {
     this._nemesis.requestRepath();
     this._fogDirty = true;
 
+    // First barricade confirmation toast
+    if (!this._tutorialBarricadeShown) {
+      this._tutorialBarricadeShown = true;
+      setTimeout(() => this._showTutorialToast('Good. That should slow it down.', 5000), 400);
+    }
+
     // Construction impact: camera shake + dust burst + HUD flash
     this._triggerCameraShake(0.15, 3);
     const { x: bx, y: by } = HexMath.toPixel(cell.q, cell.r, this.cellSize);
@@ -1463,6 +1508,26 @@ class GameLoop {
     el.style.opacity = '1';
     clearTimeout(this._buildMsgTimer);
     this._buildMsgTimer = setTimeout(() => { el.style.opacity = '0'; }, 2000);
+  }
+
+  // ── Tutorial toast ─────────────────────────────────────────────────────────
+
+  _showTutorialToast(text, durationMs = 8000) {
+    const el = document.getElementById('tutorial-toast');
+    if (!el) return;
+    clearTimeout(this._toastTimer);
+    el.textContent = text;
+    el.classList.add('visible');
+    if (durationMs > 0) {
+      this._toastTimer = setTimeout(() => el.classList.remove('visible'), durationMs);
+    }
+  }
+
+  _hideTutorialToast() {
+    const el = document.getElementById('tutorial-toast');
+    if (!el) return;
+    clearTimeout(this._toastTimer);
+    el.classList.remove('visible');
   }
 
   // ── Icon banner ────────────────────────────────────────────────────────────
@@ -1647,22 +1712,30 @@ class GameLoop {
     const grid  = this.activeIsland?.grid;
     if (!grid) return;
 
+    const isDepth5 = this._expeditionZone?.depthId === 'depth5';
+    const prevInSight = isDepth5 ? new Set() : null;
+
     // Downgrade IN_SIGHT → REVEALED for cells leaving the active radius
     for (const cell of grid.cells.values()) {
-      if (cell.visibility === 2) cell.visibility = 1;
+      if (cell.visibility === 2) {
+        if (isDepth5) prevInSight.add(cell.key);
+        cell.visibility = 1;
+      }
     }
 
     const startKey = this.player.currentCellKey;
     if (!startKey || !grid.cells.has(startKey)) return;
 
-    const dist  = new Map([[startKey, 0]]);
-    const queue = [startKey];
+    const dist       = new Map([[startKey, 0]]);
+    const queue      = [startKey];
+    const nowInSight = isDepth5 ? new Set() : null;
 
     while (queue.length) {
       const key  = queue.shift();
       const cell = grid.cells.get(key);
       if (!cell) continue;
       cell.visibility = 2; // IN_SIGHT
+      if (isDepth5) nowInSight.add(key);
 
       const d = dist.get(key);
       if (d >= this.sightRange) continue;
@@ -1678,7 +1751,219 @@ class GameLoop {
       }
     }
 
+    if (isDepth5) {
+      // Cells leaving IN_SIGHT: start decay timer (if not immune)
+      for (const key of prevInSight) {
+        if (!nowInSight.has(key)) {
+          const cell = grid.cells.get(key);
+          if (cell && !cell.isBuildable && !cell.isStart && !cell.isGoal) {
+            if (!this._revealDecayTimers.has(key)) {
+              this._revealDecayTimers.set(key, 5 + Math.random() * 3); // 5–8 s
+            }
+          }
+        }
+      }
+      // Cells re-entering IN_SIGHT: cancel decay
+      for (const key of nowInSight) {
+        this._revealDecayTimers.delete(key);
+      }
+    }
+
     this._fogDirty = true;
+  }
+
+  // ── Environmental hazard ticks ────────────────────────────────────────────
+
+  _tickCrumblingFloors(dt, grid) {
+    if (this._crumblingTimers.size === 0) return;
+    const playerKey = this.player.currentCellKey;
+    const expired   = [];
+    for (const [key, remaining] of this._crumblingTimers) {
+      if (key === playerKey) continue; // pause while player stands on it
+      const next = remaining - dt;
+      if (next <= 0) {
+        expired.push(key);
+      } else {
+        this._crumblingTimers.set(key, next);
+      }
+    }
+    for (const key of expired) {
+      this._crumblingTimers.delete(key);
+      const cell = grid.cells.get(key);
+      if (cell) {
+        cell.isVoid      = true;
+        cell.isCrumbling = false;
+        cell.isWalkable  = false;
+        // Close all passages bidirectionally
+        for (let d = 0; d < 6; d++) {
+          if (!cell.walls[d]) {
+            cell.walls[d] = true;
+            const nb   = HexMath.neighbor(cell.q, cell.r, cell.s, d);
+            const nk   = HexMath.key(nb.q, nb.r, nb.s);
+            const nbCell = grid.cells.get(nk);
+            if (nbCell) nbCell.walls[(d + 3) % 6] = true;
+          }
+        }
+        this._fogDirty = true;
+      }
+      this._nemesis?.requestRepath();
+    }
+  }
+
+  _tickFadingMemory(dt, grid) {
+    if (this._revealDecayTimers.size === 0) return;
+    const expired = [];
+    for (const [key, remaining] of this._revealDecayTimers) {
+      const next = remaining - dt;
+      if (next <= 0) {
+        expired.push(key);
+      } else {
+        this._revealDecayTimers.set(key, next);
+      }
+    }
+    for (const key of expired) {
+      this._revealDecayTimers.delete(key);
+      const cell = grid.cells.get(key);
+      if (cell && cell.visibility === 1) {
+        cell.visibility = 0;
+        this._fogDirty  = true;
+      }
+    }
+  }
+
+  _tickCaveinClearing(dt, grid, ck) {
+    if (!ck) return;
+    const cell = grid.cells.get(ck);
+    if (!cell?.hasCavein) return; // not in a cave-in cell; keep accumulated progress for re-entry
+    let prog = this._caveinProgress.get(ck);
+    if (!prog) {
+      const total = cell.caveinDensity * 2.0 * (1 - this._excavationBonus);
+      prog = { elapsed: 0, total: Math.max(0.1, total) };
+      this._caveinProgress.set(ck, prog);
+    }
+    prog.elapsed += dt;
+    if (prog.elapsed >= prog.total) {
+      cell.hasCavein      = false;
+      cell.caveinDensity  = 0;
+      cell.terrainWeight  = 1;
+      this._caveinProgress.delete(ck);
+      this._nemesis?.requestRepath();
+      this._fogDirty = true;
+      const { x: cx, y: cy } = HexMath.toPixel(cell.q, cell.r, this.cellSize);
+      this._floatingTexts.spawn(cx, cy - 10, 'Freigelegt!', '#c8a060');
+    }
+  }
+
+  _getExcavationBonus() {
+    if (typeof ArtifactRegistry === 'undefined') return 0;
+    try {
+      const labRaw            = localStorage.getItem('hexmaze_laboratory');
+      const labState          = labRaw ? JSON.parse(labRaw) : {};
+      const unlockedByTypeId  = labState.unlockedFields    || {};
+      const unlockedKnowledge = labState.unlockedKnowledge || {};
+      const fx = ArtifactRegistry.getEquippedEffects(
+        labState.equipped || {},
+        unlockedByTypeId,
+        unlockedKnowledge,
+      );
+      return fx.excavationSpeed ?? 0;
+    } catch { return 0; }
+  }
+
+  _renderHazardOverlays(ctx) {
+    const grid = this.activeIsland?.grid;
+    if (!grid) return;
+    const size = this.cellSize * this.floorScale;
+    const now  = Date.now();
+
+    // Pulse material cells amber during Phase A at Level 4+ (collect before reaching exit)
+    if (this._runState === 'playing' && this.progression.level >= 4 && !this._buildPhaseUnlocked) {
+      const pulse = 0.30 + 0.30 * Math.sin(now * 0.003);
+      for (const cell of grid.cells.values()) {
+        if (cell.visibility < 1 || !cell.hasMaterial) continue;
+        const { x: cx, y: cy } = HexMath.toPixel(cell.q, cell.r, this.cellSize);
+        const corners = HexMath.corners(cx, cy, size + 4);
+        ctx.save();
+        ctx.globalAlpha = pulse;
+        ctx.strokeStyle = '#c8a040';
+        ctx.lineWidth   = 2.5;
+        ctx.beginPath();
+        ctx.moveTo(corners[0].x, corners[0].y);
+        for (let i = 1; i < 6; i++) ctx.lineTo(corners[i].x, corners[i].y);
+        ctx.closePath();
+        ctx.stroke();
+        ctx.restore();
+      }
+    }
+
+    // Pulse buildable spots purple during Phase B while player is locked at the goal
+    if (this._buildPhaseUnlocked && this._lockedAtGoal && this._runState === 'playing') {
+      const pulse = 0.35 + 0.35 * Math.sin(now * 0.004);
+      for (const cell of grid.cells.values()) {
+        if (cell.visibility < 2 || !cell.isBuildable || cell.blockadeLevel > 0) continue;
+        const { x: cx, y: cy } = HexMath.toPixel(cell.q, cell.r, this.cellSize);
+        const corners = HexMath.corners(cx, cy, size + 4);
+        ctx.save();
+        ctx.globalAlpha = pulse;
+        ctx.strokeStyle = '#8844ff';
+        ctx.lineWidth   = 2.5;
+        ctx.beginPath();
+        ctx.moveTo(corners[0].x, corners[0].y);
+        for (let i = 1; i < 6; i++) ctx.lineTo(corners[i].x, corners[i].y);
+        ctx.closePath();
+        ctx.stroke();
+        ctx.restore();
+      }
+    }
+
+    if (!this._expeditionZone) return; // hazards below are expedition-only
+
+    // Crumbling floor glow: amber → red as collapse timer counts down (1.5s)
+    for (const [key, remaining] of this._crumblingTimers) {
+      const cell = grid.cells.get(key);
+      if (!cell) continue;
+      const { x: cx, y: cy } = HexMath.toPixel(cell.q, cell.r, this.cellSize);
+      const t       = 1 - (remaining / 1.5);       // 0=fresh, 1=imminent
+      const alpha   = 0.18 + t * 0.52;
+      const g       = Math.round(149 * (1 - t));
+      const corners = HexMath.corners(cx, cy, size);
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      ctx.fillStyle   = `rgb(255,${g},32)`;
+      ctx.beginPath();
+      ctx.moveTo(corners[0].x, corners[0].y);
+      for (let i = 1; i < 6; i++) ctx.lineTo(corners[i].x, corners[i].y);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    }
+
+    // Cave-in clearing progress arc above the player's occupied cell
+    const progKey = this.player.currentCellKey;
+    if (progKey) {
+      const prog = this._caveinProgress.get(progKey);
+      if (prog) {
+        const pct  = Math.min(1, prog.elapsed / prog.total);
+        const cell = grid.cells.get(progKey);
+        if (cell) {
+          const { x: cx, y: cy } = HexMath.toPixel(cell.q, cell.r, this.cellSize);
+          const arcR = this.cellSize * 0.30;
+          const startAngle = -Math.PI / 2;
+          ctx.save();
+          ctx.lineWidth   = 4;
+          ctx.strokeStyle = 'rgba(200,160,60,0.25)';
+          ctx.beginPath();
+          ctx.arc(cx, cy, arcR, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.strokeStyle = '#c8a03c';
+          ctx.lineCap     = 'round';
+          ctx.beginPath();
+          ctx.arc(cx, cy, arcR, startAngle, startAngle + Math.PI * 2 * pct);
+          ctx.stroke();
+          ctx.restore();
+        }
+      }
+    }
   }
 
   // Mark every active island cell as IN_SIGHT (used during peek).
@@ -1813,6 +2098,19 @@ class GameLoop {
     }
 
     // ── Player movement (phases A, B, C) ──────────────────────────────────────
+    // Temporarily seal all exits of the current cell when:
+    //   a) it contains a cave-in (player must hold to clear), OR
+    //   b) it is the goal cell during Phase B (player locked in to build barricades).
+    // The Nemesis is unaffected — it moves cell-to-cell via findPath(), not physics.
+    const _preLockKey  = this.player.currentCellKey;
+    const _preLockCell = _preLockKey ? grid.cells.get(_preLockKey) : null;
+    const _shouldLock  = _preLockCell && (
+      _preLockCell.hasCavein ||
+      (_preLockCell.isGoal && this._lockedAtGoal)
+    );
+    const _savedWalls  = _shouldLock ? [..._preLockCell.walls] : null;
+    if (_savedWalls) _preLockCell.walls = [true, true, true, true, true, true];
+
     const wp = this._pointerToWorld();
     this.player.update(dt, grid, this.cellSize, this.floorScale, {
       keys:          this._keys,
@@ -1821,7 +2119,21 @@ class GameLoop {
       worldPointerY: wp.y,
     });
 
+    if (_savedWalls) _preLockCell.walls = _savedWalls; // restore after collision resolve
+
     const ck = this.player.currentCellKey;
+
+    // Detect player leaving a crumbling cell → start collapse timer
+    if (ck !== this._prevPlayerCellKey) {
+      const leavingKey = this._prevPlayerCellKey;
+      if (leavingKey && this._expeditionZone) {
+        const leavingCell = grid.cells.get(leavingKey);
+        if (leavingCell?.isCrumbling && !leavingCell.isVoid && !this._crumblingTimers.has(leavingKey)) {
+          this._crumblingTimers.set(leavingKey, 1.5);
+        }
+      }
+      this._prevPlayerCellKey = ck;
+    }
 
     // Track non-ideal visits (levels 1-3 only)
     if (this.progression.level <= 3 && ck && !this._idealPathSet.has(ck)) {
@@ -1848,8 +2160,9 @@ class GameLoop {
           cell.hasMaterial = false; cell.materialAmount = 0;
           this._fogDirty = true;
           const matInfo = this._getBuildMaterialInfo();
-          if (isFirst && this.progression.level >= 4) {
-            this._showBuildMessage(`+${amt} ${matInfo.name} — use at build spots!`);
+          if (isFirst && this.progression.level >= 4 && !this._tutorialMaterialHinted) {
+            this._tutorialMaterialHinted = true;
+            this._showTutorialToast('Good — I can use this to block a passage. Keep moving.', 5000);
           }
 
           // Floating "+N" text at the cell world position
@@ -1892,6 +2205,13 @@ class GameLoop {
     // Fog update on cell change
     if (this._fogNeedsUpdate()) this._updateFogOfWar();
 
+    // Environmental hazard ticks
+    if (this._expeditionZone) {
+      this._tickCrumblingFloors(dt, grid);
+      this._tickFadingMemory(dt, grid);
+      this._tickCaveinClearing(dt, grid, ck);
+    }
+
     this._updateHUD();
 
     // ── Goal reached ──────────────────────────────────────────────────────────
@@ -1900,11 +2220,26 @@ class GameLoop {
         // Phase B: unlock building
         if (!this._buildPhaseUnlocked) {
           this._buildPhaseUnlocked = true;
-          this._showPhaseBanner('B — Bauen', 3.5, '#ffd23f');
-          this._showPhaseIconBanner(
-            'Gib <icon-gold> an einer <icon-spot> aus, um eine <icon-blockade> zu bauen',
-            5500
+          this._lockedAtGoal       = true;
+          this._showPhaseBanner('B — Build', 3.5, '#ffd23f');
+          // Arriving message — immediate
+          this._showTutorialToast(
+            "I found it. But something is closing in fast. I can’t leave — I need to seal the way in.",
+            0  // persist until next toast replaces it
           );
+          // Build instruction — delayed so player reads the arriving message first
+          setTimeout(() => {
+            if (!this._tutorialBuildHinted) {
+              this._tutorialBuildHinted = true;
+              const hasScrap = this._buildMaterial > 0;
+              this._showTutorialToast(
+                hasScrap
+                  ? 'Those marked passages — tap and hold to pile up a barricade.'
+                  : 'I need materials to block the way, but there’s no time to go back. I’ll have to hold out.',
+                0
+              );
+            }
+          }, 2400);
           if (!this._buildHintShown) {
             this._buildHintShown = true;
             this._showBuildHint();
@@ -1963,6 +2298,7 @@ class GameLoop {
       if (this._runState === 'nemesis' && this._nemesis.active) {
         this._renderNemesis(ctx);
       }
+      this._renderHazardOverlays(ctx);
     } else if (this._runState === 'peeking') {
       this._renderPlayer(ctx);
     }

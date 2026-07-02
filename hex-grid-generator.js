@@ -43,6 +43,8 @@ class HexGridGenerator {
     this._placeGold();
     this._placeMaterial();
     this._placeArtifacts();
+    this._placeCrumblingFloors();
+    this._placeCaveins();
 
     return this;
   }
@@ -736,6 +738,98 @@ class HexGridGenerator {
     const path = [current];
     while (cameFrom.has(current)) { current = cameFrom.get(current); path.unshift(current); }
     return path;
+  }
+
+  // ── Articulation-point detection (DFS on open-passage graph) ─────────────
+  // Returns a Set of cell keys that are cut vertices — removing one would
+  // disconnect the maze graph. Used to exclude crumbling-floor candidates.
+
+  _findArticulationPoints() {
+    const cells   = this.cells;
+    const visited = new Set();
+    const disc    = new Map();
+    const low     = new Map();
+    const parent  = new Map();
+    const aps     = new Set();
+    let timer     = 0;
+
+    const dfs = (key) => {
+      visited.add(key);
+      disc.set(key, timer);
+      low.set(key, timer);
+      timer++;
+      const cell = cells.get(key);
+      let childCount = 0;
+      for (let d = 0; d < 6; d++) {
+        if (cell.walls[d]) continue;
+        const nb = HexMath.neighbor(cell.q, cell.r, cell.s, d);
+        const nk = HexMath.key(nb.q, nb.r, nb.s);
+        if (!cells.has(nk)) continue;
+        if (!visited.has(nk)) {
+          childCount++;
+          parent.set(nk, key);
+          dfs(nk);
+          low.set(key, Math.min(low.get(key), low.get(nk)));
+          if (!parent.has(key) && childCount > 1) aps.add(key);
+          if (parent.has(key) && low.get(nk) >= disc.get(key)) aps.add(key);
+        } else if (nk !== parent.get(key)) {
+          low.set(key, Math.min(low.get(key), disc.get(nk)));
+        }
+      }
+    };
+
+    if (this.startCell) dfs(this.startCell.key);
+    return aps;
+  }
+
+  // ── Crumbling Floors (Depth 1+) ───────────────────────────────────────────
+  // Mark a fraction of eligible cells as crumbling. Cut vertices are excluded
+  // so that no single void event can disconnect the maze graph.
+
+  _placeCrumblingFloors() {
+    if (!this.expeditionZoneId || this.depth < 1) return;
+
+    const aps = this._findArticulationPoints();
+    const pct = 0.06 + this.depth * 0.02; // 8 % depth-1 … 16 % depth-5
+
+    const eligible = [];
+    for (const cell of this.cells.values()) {
+      if (cell.isTunnel || cell.isStart || cell.isGoal || cell.isBuildable) continue;
+      if (aps.has(cell.key)) continue;
+      eligible.push(cell);
+    }
+
+    this.rng.shuffle(eligible);
+    const count = Math.round(pct * eligible.length);
+    for (let i = 0; i < count && i < eligible.length; i++) {
+      eligible[i].isCrumbling = true;
+    }
+  }
+
+  // ── Cave-ins / Rubble (Depth 2+) ──────────────────────────────────────────
+  // Scatter a small number of rubble cells. High terrain-weight makes the
+  // nemesis route around them when an alternative path exists.
+
+  _placeCaveins() {
+    if (!this.expeditionZoneId || this.depth < 2) return;
+
+    const base  = this.depth - 1;                            // 1 at d2 … 4 at d5
+    const count = base + this.rng.int(0, Math.min(2, this.depth - 2));
+
+    const eligible = [];
+    for (const cell of this.cells.values()) {
+      if (cell.isTunnel || cell.isStart || cell.isGoal) continue;
+      if (cell.isCrumbling || cell.isBuildable) continue;
+      if (cell.hasCurrency || cell.hasMaterial || cell.hasArtifact) continue;
+      eligible.push(cell);
+    }
+
+    this.rng.shuffle(eligible);
+    for (let i = 0; i < count && i < eligible.length; i++) {
+      const cell         = eligible[i];
+      cell.hasCavein     = true;
+      cell.caveinDensity = this.rng.int(1, 3);
+    }
   }
 
   // ── Serialization ─────────────────────────────────────────────────────────

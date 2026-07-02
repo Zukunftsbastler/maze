@@ -174,16 +174,20 @@ class HexRenderer {
       for (let i = 1; i < 6; i++) ctx.lineTo(sc[i].x, sc[i].y);
       ctx.closePath();
 
-      if (cell.blockadeLevel > 0) {
+      if (cell.isVoid) {
+        ctx.fillStyle = '#010108'; // abyss
+      } else if (cell.blockadeLevel > 0) {
         ctx.fillStyle = this.colors.floorBlockade;
       } else if (v === 1) {
-        ctx.fillStyle = this.colors.floorRevealed;
+        ctx.fillStyle = cell.isCrumbling ? '#1a0f07' : this.colors.floorRevealed;
       } else if (cell.isGoal) {
         ctx.fillStyle = 'rgba(255,68,102,0.30)';
       } else if (cell.isStart) {
         ctx.fillStyle = 'rgba(0,255,136,0.30)';
       } else if (this.showPath && pathSet.has(cell.key)) {
         ctx.fillStyle = this.colors.pathFloor;
+      } else if (cell.isCrumbling) {
+        ctx.fillStyle = '#16110d'; // very slightly warmer than normal floor
       } else {
         ctx.fillStyle = this.colors.floor;
       }
@@ -245,6 +249,49 @@ class HexRenderer {
     ctx.setLineDash([]);
     ctx.shadowBlur = 0;
 
+    // ── Pass 2.75: cave-in rubble overlay ─────────────────────────────────────
+    for (const cell of grid.cells.values()) {
+      if (!cell.hasCavein || cell.isVoid) continue;
+      const v = vis(cell);
+      if (v !== 2) continue; // only in direct sight
+
+      const { x, y } = HexMath.toPixel(cell.q, cell.r, size);
+      const cx = x + offX, cy = y + offY;
+      const half = size * 0.32;
+      const d    = cell.caveinDensity;
+
+      ctx.save();
+      ctx.shadowColor = '#7a5018';
+      ctx.shadowBlur  = 6;
+
+      // Draw density × rock/rubble blobs
+      const positions = [
+        [cx - half * 0.55, cy - half * 0.2],
+        [cx + half * 0.45, cy + half * 0.1],
+        [cx - half * 0.1,  cy + half * 0.55],
+      ];
+      for (let i = 0; i < d && i < positions.length; i++) {
+        const [rx, ry] = positions[i];
+        const rs = half * (0.35 + i * 0.05);
+        ctx.beginPath();
+        ctx.arc(rx, ry, rs, 0, Math.PI * 2);
+        ctx.fillStyle   = i === 0 ? '#6b4820' : i === 1 ? '#7a5828' : '#594010';
+        ctx.strokeStyle = '#3a2808';
+        ctx.lineWidth   = 1.2;
+        ctx.fill();
+        ctx.stroke();
+      }
+
+      // Density badge
+      ctx.shadowBlur  = 0;
+      ctx.fillStyle   = 'rgba(200,150,60,0.90)';
+      ctx.font        = `bold ${Math.max(7, Math.round(size * 0.18))}px monospace`;
+      ctx.textAlign   = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('✕'.repeat(d), cx, cy - half * 0.6);
+      ctx.restore();
+    }
+
     // ── Pass 3: wall lines ────────────────────────────────────────────────────
     ctx.lineCap  = 'round';
     ctx.lineJoin = 'round';
@@ -252,6 +299,7 @@ class HexRenderer {
     for (const cell of grid.cells.values()) {
       const v = vis(cell);
       if (v === 0) continue; // hidden — no walls drawn
+      if (cell.isVoid) continue; // void cells don't draw walls (neighbours' walls suffice)
 
       const sc = shrunk(cell, f);
 

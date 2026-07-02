@@ -14,15 +14,15 @@ class Nemesis {
   }
 
   spawn(worldX, worldY, startKey, goalKey) {
-    this.worldX         = worldX;
-    this.worldY         = worldY;
-    this.currentCellKey = startKey;
-    this._goalKey       = goalKey;
-    this.reachedGoal    = false;
-    this.active         = true;
-    this._path          = [];
-    this._pathIndex     = 0;
-    this._repathNeeded  = true;
+    this.worldX          = worldX;
+    this.worldY          = worldY;
+    this.currentCellKey  = startKey;
+    this._goalKey        = goalKey;
+    this.reachedGoal     = false;
+    this.active          = true;
+    this._path           = [];
+    this._pathIndex      = 0;
+    this._repathNeeded   = true;
   }
 
   // Called whenever a blockade changes the grid walkability.

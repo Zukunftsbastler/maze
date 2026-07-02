@@ -340,6 +340,20 @@
       width: 100%;
     }
 
+    /* ── Tutorial toast (atmospheric in-game hints) ── */
+    #tutorial-toast {
+      position: absolute; bottom: 72px; left: 50%; transform: translateX(-50%);
+      max-width: 400px; width: calc(100% - 40px);
+      background: rgba(8,6,22,0.93);
+      border: 1px solid rgba(180,140,80,0.38); border-left: 3px solid #c8a040;
+      color: #e0cca0;
+      font-family: 'Georgia','Times New Roman',serif; font-style: italic;
+      font-size: 0.80rem; line-height: 1.6; padding: 9px 14px;
+      border-radius: 4px; pointer-events: none; z-index: 16;
+      opacity: 0; transition: opacity 0.4s;
+    }
+    #tutorial-toast.visible { opacity: 1; }
+
     /* ── Build action hint ── */
     #build-hint {
       display: none; position: absolute; z-index: 8;
@@ -466,6 +480,9 @@
 
     <!-- Placement-rejected message -->
     <div id="build-message"></div>
+
+    <!-- Atmospheric tutorial hints -->
+    <div id="tutorial-toast"></div>
 
     <!-- Phase-B icon banner -->
     <div id="phase-icon-banner"></div>

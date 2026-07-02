@@ -101,6 +101,7 @@ function buildActiveEffects() {
     sightRangeBonus:   0,
     nemesisSpeedMult:  0,
     passiveIncomeMult: 1.0,
+    excavationSpeed:   0, // fractional reduction in cave-in clearing time (IS_EQUIPPED only)
   };
 }
 
@@ -112,6 +113,7 @@ function applyEffect(effects, effect, tier) {
     case 'SIGHT_RANGE':         effects.sightRangeBonus    += v; break;
     case 'NEMESIS_SPEED':       effects.nemesisSpeedMult   += v; break;
     case 'PASSIVE_INCOME_MULT': effects.passiveIncomeMult  *= v; break;
+    case 'EXCAVATION_SPEED':    effects.excavationSpeed    += v; break;
   }
 }
 
@@ -689,6 +691,30 @@ const ARTIFACT_CATALOG = {
         description: t => `Equipped: +${Math.max(1, Math.floor(t / 2))} Sight Range (you open hidden passages)`,
         conditions: [{ type: 'IS_EQUIPPED' }],
         effects: [{ type: 'SIGHT_RANGE', value: t => Math.max(1, Math.floor(t / 2)) }] },
+    ],
+  },
+
+  iron_pickaxe: {
+    id: 'iron_pickaxe', name: 'Iron Pickaxe',
+    sprite:     'ASSETS/ITEMS/ARTIFACTS/artifact_placeholder.png',
+    spriteFull: 'ASSETS/ITEMS/ARTIFACTS/artifact_placeholder.png',
+    baseValue: 22, equipSlot: 'tool',
+    description: 'A heavy iron pickaxe recovered from a collapsed section of the lower warrens. The tempered head has fractured but holds its edge remarkably well — ideal for breaking through soft cave-in deposits.',
+    metadata: { material: 'Brass', size: 'Bulky', weight: 4.1, type: 'Tool', origin: 'Unknown Depths', arcaneResonance: 'Null' },
+    tags: ['iron', 'tool', 'bulky', 'excavation', 'origin:custodian'],
+    traits: [
+      { id: 'rapid_excavation', name: 'Rapid Excavation', type: 'positive', category: 'physical',
+        description: t => `Equipped: Cave-in clearing time −${Math.round(Math.min(80, t * 8))}%`,
+        conditions: [{ type: 'IS_EQUIPPED' }],
+        effects: [{ type: 'EXCAVATION_SPEED', value: t => Math.min(0.80, t * 0.08) }] },
+      { id: 'pickaxe_appeal', name: 'Mining Relic', type: 'positive', category: 'lore',
+        description: t => `Exhibited: +${t} Visitor Attraction`,
+        conditions: [{ type: 'IS_EXHIBITED' }],
+        effects: [{ type: 'VISITOR_ATTRACTION', value: t => t }] },
+      { id: 'heavy_carry', name: 'Heavy Load', type: 'negative', category: 'material',
+        description: t => `Equipped: Peek time −${(Math.max(0.05, 0.25 - t * 0.02)).toFixed(2)}s (weight tires the arm)`,
+        conditions: [{ type: 'IS_EQUIPPED' }],
+        effects: [{ type: 'PEEK_TIME', value: t => -(Math.max(0.05, 0.25 - t * 0.02)) }] },
     ],
   },
 
