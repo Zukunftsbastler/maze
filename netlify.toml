@@ -1,6 +1,9 @@
 [build]
-  publish = "."
-  # Kein build-Befehl notwendig
+  # Nur die Laufzeitdateien werden veröffentlicht. Prompts, Design-Notizen, Lore, README,
+  # zone-map-editor.html und validate-artifacts.js (Node-Werkzeug) bleiben im Repo.
+  # Neue Laufzeitdateien (außer *.js) müssen hier ergänzt werden.
+  command = "rm -rf dist && mkdir dist && cp index.html panoptikum.css *.js dist/ && rm dist/validate-artifacts.js && cp -R ASSETS dist/"
+  publish = "dist"
 
 # Sicherheits-Header für alle Seiten
 [[headers]]
@@ -10,9 +13,9 @@
     X-Content-Type-Options = "nosniff"
     Referrer-Policy = "strict-origin-when-cross-origin"
     Permissions-Policy = "camera=(), microphone=(), geolocation=()"
-    # 'unsafe-inline' ist nötig wegen des inline <script>-Blocks in index.html.
-    # Kein Risiko hier, da es keine User-Eingaben gibt die ungefiltert in den DOM kommen.
-    Content-Security-Policy = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:;"
+    # Skripte nur aus eigenen Dateien (das frühere Inline-Skript liegt jetzt in main.js).
+    # 'unsafe-inline' bleibt nur für Styles: index.html und die JS-Templates nutzen style-Attribute.
+    Content-Security-Policy = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'"
 
 # Cache-Header für JS-Dateien
 [[headers]]
